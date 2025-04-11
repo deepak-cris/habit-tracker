@@ -4,7 +4,9 @@ import '../models/habit.dart';
 import '../models/habit_status.dart';
 import '../auth/auth_notifier.dart';
 import '../widgets/habit_card.dart';
-import 'add_edit_habit_screen.dart'; // Import the new screen
+import '../widgets/habit_graph_card.dart'; // Import the graph card
+import 'add_edit_habit_screen.dart';
+import 'habit_detail_screen.dart'; // Import the detail screen
 
 // --- Habit State Management ---
 final habitProvider = StateNotifierProvider<HabitNotifier, List<Habit>>(
@@ -251,7 +253,27 @@ class HomeScreen extends ConsumerWidget {
             ),
 
             // --- GRAPHS Tab ---
-            const Center(child: Text('Graphs Screen (TODO)')),
+            ListView.builder(
+              padding: const EdgeInsets.only(
+                top: 8.0,
+                bottom: 80.0,
+              ), // Add padding, especially bottom for FAB
+              itemCount: habits.length,
+              itemBuilder: (context, index) {
+                final habit = habits[index];
+                return HabitGraphCard(
+                  habit: habit,
+                  onTap: () {
+                    // Navigate to detail screen on tap
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => HabitDetailScreen(habit: habit),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
           ],
         ),
         floatingActionButton: FloatingActionButton(
