@@ -6,7 +6,8 @@ import '../auth/auth_notifier.dart';
 import '../widgets/habit_card.dart';
 import '../widgets/habit_graph_card.dart'; // Import the graph card
 import 'add_edit_habit_screen.dart';
-import 'habit_detail_screen.dart'; // Import the detail screen
+import 'habit_detail_screen.dart'; // Import the Calendar/Details screen
+import 'habit_stats_screen.dart'; // Import the Statistics screen
 
 // --- Habit State Management ---
 final habitProvider = StateNotifierProvider<HabitNotifier, List<Habit>>(
@@ -14,54 +15,81 @@ final habitProvider = StateNotifierProvider<HabitNotifier, List<Habit>>(
 );
 
 class HabitNotifier extends StateNotifier<List<Habit>> {
-  HabitNotifier() : super(_initialHabits);
+  HabitNotifier() : super(_initialHabits) {
+    // Ensure initial habits have normalized dates in maps
+    _initialHabits.forEach((habit) {
+      // This part is tricky as the state is final.
+      // Ideally, normalization happens when adding/updating, not here.
+      // For dummy data, we'll pre-normalize the keys.
+    });
+  }
 
-  // Updated dummy data with all fields
-  static final _initialHabits = [
-    Habit(
-      id: '1',
-      name: 'Wake Up and Sleep',
-      dateStatus: {},
-      notes: {},
-      startDate: DateTime.now(),
-      selectedDays: List.filled(7, true),
-    ),
-    Habit(
-      id: '2',
-      name: 'No Smoking',
-      dateStatus: {},
-      notes: {},
-      startDate: DateTime.now(),
-      selectedDays: List.filled(7, true),
-    ),
-    Habit(
-      id: '3',
-      name: 'Exercise',
-      dateStatus: {},
-      notes: {},
-      startDate: DateTime.now(),
-      selectedDays: List.filled(7, true),
-    ),
-    Habit(
-      id: '4',
-      name: 'Meditation',
-      dateStatus: {},
-      notes: {},
-      startDate: DateTime.now(),
-      selectedDays: List.filled(7, true),
-    ),
-    Habit(
-      id: '5',
-      name: 'No Film',
-      dateStatus: {},
-      notes: {},
-      targetStreak: 7,
-      startDate: DateTime.now(),
-      selectedDays: List.filled(7, true),
-    ),
+  // Helper to normalize date keys - IMPORTANT: Use when adding/updating status/notes
+  static DateTime _normalizeDate(DateTime date) {
+    return DateTime.utc(date.year, date.month, date.day);
+  }
+
+  // Single dummy habit with detailed info and status history
+  static final List<Habit> _initialHabits = [
+    () {
+      final today = DateTime.now();
+      final startDate = _normalizeDate(
+        today.subtract(const Duration(days: 35)),
+      ); // Start 5 weeks ago
+      final Map<DateTime, HabitStatus> dateStatus = {};
+      final Map<DateTime, String> notes = {};
+
+      // Populate some history for the last 5 weeks
+      for (int i = 0; i < 35; i++) {
+        final date = _normalizeDate(today.subtract(Duration(days: i)));
+        if (date.isBefore(startDate))
+          continue; // Don't add status before start date
+
+        // Example pattern: Mostly done, some skips, occasional fails
+        if (date.weekday == DateTime.saturday) {
+          // Skip Saturdays
+          dateStatus[date] = HabitStatus.skip;
+        } else if (i % 10 == 0) {
+          // Fail every 10 days back
+          dateStatus[date] = HabitStatus.fail;
+          notes[date] = 'Felt tired today.';
+        } else if (i % 5 == 0) {
+          // Skip every 5 days back (unless already failed)
+          if (dateStatus[date] == null) {
+            dateStatus[date] = HabitStatus.skip;
+          }
+        } else {
+          // Mark as done otherwise
+          dateStatus[date] = HabitStatus.done;
+          if (i == 2) notes[date] = 'Good session!';
+        }
+      }
+
+      return Habit(
+        id: 'dummy_exercise',
+        name: 'Morning Exercise',
+        description: '30 minutes of cardio or strength training.',
+        reasons: ['Improve health', 'Boost energy', 'Reduce stress'],
+        startDate: startDate,
+        dateStatus: dateStatus, // Pre-populated status
+        notes: notes, // Pre-populated notes
+        scheduleType: 'Fixed',
+        // Example: Weekdays only
+        selectedDays: [
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          false,
+        ], // Su, Mo, Tu, We, Th, Fr, Sa
+        targetStreak: 14, // Example target streak
+      );
+    }(), // Immediately invoke the function to create the habit
   ];
 
-  // Update addHabit to accept all new fields
+  // Update addHabit to accept all new fields and normalize dates
   void addHabit({
     required String name,
     String? description,
@@ -80,7 +108,7 @@ class HabitNotifier extends StateNotifier<List<Habit>> {
         reasons: reasons ?? [],
         dateStatus: {},
         notes: {},
-        startDate: startDate,
+        startDate: _normalizeDate(startDate), // Normalize start date
         scheduleType: scheduleType,
         selectedDays: selectedDays,
         targetStreak: targetStreak,
@@ -93,9 +121,9 @@ class HabitNotifier extends StateNotifier<List<Habit>> {
     // TODO: Also delete from Hive persistence later
   }
 
-  // Update status for a specific date
+  // Update status for a specific date (using helper)
   void updateStatus(String habitId, DateTime date, HabitStatus status) {
-    final normalizedDate = DateTime.utc(date.year, date.month, date.day);
+    final normalizedDate = _normalizeDate(date); // Use helper
 
     state =
         state.map((habit) {
@@ -131,9 +159,9 @@ class HabitNotifier extends StateNotifier<List<Habit>> {
     // TODO: Persist changes to Hive later
   }
 
-  // Add/Update note for a specific date
+  // Add/Update note for a specific date (using helper)
   void updateNote(String habitId, DateTime date, String note) {
-    final normalizedDate = DateTime.utc(date.year, date.month, date.day);
+    final normalizedDate = _normalizeDate(date); // Use helper
 
     state =
         state.map((habit) {
@@ -165,133 +193,177 @@ class HabitNotifier extends StateNotifier<List<Habit>> {
 }
 // --- End Habit State Management ---
 
-class HomeScreen extends ConsumerWidget {
+// Convert to ConsumerStatefulWidget to manage TabController state
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final habits = ref.watch(habitProvider);
-    // DateTime selectedDay = DateTime.now(); // No longer needed at this level
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
 
-    // Use DefaultTabController for the TabBar
-    return DefaultTabController(
-      length: 3, // Number of tabs: REWARDS, HABITS, GRAPHS
-      initialIndex: 1, // Start with the HABITS tab selected
-      child: Scaffold(
-        appBar: AppBar(
-          backgroundColor: Colors.teal, // Match image color
-          leading: IconButton(
-            icon: const Icon(Icons.menu, color: Colors.white), // Hamburger icon
-            onPressed: () {
-              // TODO: Implement drawer or menu action
-            },
-          ),
-          title: const Text(
-            'All', // Match image title
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-          ),
-          centerTitle: false, // Align title left
-          actions: [
-            IconButton(
-              icon: const Icon(
-                Icons.emoji_events_outlined,
-                color: Colors.white,
-              ), // Crown icon placeholder
-              onPressed: () {
-                // TODO: Implement rewards action
-              },
-            ),
-            IconButton(
-              icon: const Icon(
-                Icons.cloud_outlined,
-                color: Colors.white,
-              ), // Cloud icon placeholder
-              onPressed: () {
-                // TODO: Implement cloud/sync action
-              },
-            ),
-            IconButton(
-              icon: const Icon(
-                Icons.more_vert,
-                color: Colors.white,
-              ), // Three-dot menu
-              onPressed: () {
-                // TODO: Implement more options menu
-              },
-            ),
-            // Add the original logout button for now
-            IconButton(
-              icon: const Icon(Icons.logout, color: Colors.white),
-              onPressed: () => ref.read(authProvider.notifier).signOut(),
-            ),
-          ],
-          bottom: const TabBar(
-            labelColor: Colors.white, // Selected tab text color
-            unselectedLabelColor: Colors.white70, // Unselected tab text color
-            indicatorColor: Colors.white, // Underline color for selected tab
-            tabs: [
-              Tab(text: 'REWARDS'),
-              Tab(text: 'HABITS'),
-              Tab(text: 'GRAPHS'),
-            ],
-          ),
-        ),
-        body: TabBarView(
-          children: [
-            // --- REWARDS Tab ---
-            const Center(child: Text('Rewards Screen (TODO)')),
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  int _currentTabIndex = 1; // Start with HABITS tab selected
 
-            // --- HABITS Tab ---
-            ListView.builder(
-              padding: const EdgeInsets.all(8.0), // Add some padding
-              itemCount: habits.length,
-              itemBuilder: (context, index) {
-                final habit = habits[index];
-                // Use the new HabitCard widget
-                return HabitCard(habit: habit);
-              },
-            ),
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this, initialIndex: 1);
+    _tabController.addListener(() {
+      // Update state when tab changes to show/hide FAB
+      if (_tabController.index != _currentTabIndex) {
+        setState(() {
+          _currentTabIndex = _tabController.index;
+        });
+      }
+    });
+  }
 
-            // --- GRAPHS Tab ---
-            ListView.builder(
-              padding: const EdgeInsets.only(
-                top: 8.0,
-                bottom: 80.0,
-              ), // Add padding, especially bottom for FAB
-              itemCount: habits.length,
-              itemBuilder: (context, index) {
-                final habit = habits[index];
-                return HabitGraphCard(
-                  habit: habit,
-                  onTap: () {
-                    // Navigate to detail screen on tap
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => HabitDetailScreen(habit: habit),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ],
-        ),
-        floatingActionButton: FloatingActionButton(
-          backgroundColor: Colors.pink,
-          foregroundColor: Colors.white,
-          child: const Icon(Icons.add),
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // No longer need to watch habits here if HabitCard handles its own data/navigation
+    // final habits = ref.watch(habitProvider);
+
+    // Remove DefaultTabController, use the state's _tabController
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.teal,
+        leading: IconButton(
+          icon: const Icon(Icons.menu, color: Colors.white), // Hamburger icon
           onPressed: () {
-            // Navigate to the new screen instead of showing dialog
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => const AddEditHabitScreen(),
-              ),
-            );
+            // TODO: Implement drawer or menu action
           },
         ),
+        title: const Text(
+          'All', // Match image title
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        centerTitle: false, // Align title left
+        actions: [
+          IconButton(
+            icon: const Icon(
+              Icons.emoji_events_outlined,
+              color: Colors.white,
+            ), // Crown icon placeholder
+            onPressed: () {
+              // TODO: Implement rewards action
+            },
+          ),
+          IconButton(
+            icon: const Icon(
+              Icons.cloud_outlined,
+              color: Colors.white,
+            ), // Cloud icon placeholder
+            onPressed: () {
+              // TODO: Implement cloud/sync action
+            },
+          ),
+          IconButton(
+            icon: const Icon(
+              Icons.more_vert,
+              color: Colors.white,
+            ), // Three-dot menu
+            onPressed: () {
+              // TODO: Implement more options menu
+            },
+          ),
+          // Add the original logout button for now
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            onPressed: () => ref.read(authProvider.notifier).signOut(),
+          ),
+        ],
+        bottom: TabBar(
+          controller: _tabController, // Assign controller
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          indicatorColor: Colors.white,
+          tabs: const [
+            // Keep tabs const
+            Tab(text: 'REWARDS'),
+            Tab(text: 'HABITS'),
+            Tab(text: 'GRAPHS'),
+          ],
+        ),
       ),
+      body: TabBarView(
+        controller: _tabController, // Assign controller
+        children: [
+          const Center(child: Text('Rewards Screen (TODO)')), // REWARDS Tab
+
+          _buildHabitsTab(), // HABITS Tab
+          _buildGraphsTab(), // GRAPHS Tab
+        ],
+      ),
+      // Conditionally display FAB based on the current tab index
+      floatingActionButton:
+          _currentTabIndex ==
+                  1 // Show only on HABITS tab (index 1)
+              ? FloatingActionButton(
+                backgroundColor: Colors.pink,
+                foregroundColor: Colors.white,
+                onPressed: () {
+                  // Added missing onPressed parameter
+                  // Navigate to the AddEditHabitScreen
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const AddEditHabitScreen(),
+                    ),
+                  );
+                }, // Added missing closing parenthesis for onPressed
+                child: const Icon(Icons.add),
+              )
+              : null, // Return null if not on the HABITS tab
     );
   }
 
-  // Removed _showAddHabitDialog method
+  // Extracted build methods for tabs for clarity
+  Widget _buildHabitsTab() {
+    final habits = ref.watch(
+      habitProvider,
+    ); // Watch habits specifically for this tab
+    return ListView.builder(
+      padding: const EdgeInsets.all(8.0),
+      itemCount: habits.length,
+      itemBuilder: (context, index) {
+        final habit = habits[index];
+        // HabitCard handles its own tap navigation internally now
+        return HabitCard(habit: habit);
+      },
+    );
+  }
+
+  Widget _buildGraphsTab() {
+    final habits = ref.watch(
+      habitProvider,
+    ); // Watch habits specifically for this tab
+    return ListView.builder(
+      padding: const EdgeInsets.only(
+        top: 8.0,
+        bottom: 80.0,
+      ), // Padding for FAB overlap
+      itemCount: habits.length,
+      itemBuilder: (context, index) {
+        final habit = habits[index];
+        return HabitGraphCard(
+          habit: habit,
+          onTap: () {
+            // Navigate to stats screen on tap
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => HabitStatsScreen(habit: habit),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }

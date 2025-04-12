@@ -1,270 +1,773 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../models/habit.dart';
-import '../utils/habit_utils.dart'; // Import utils
-import '../widgets/detail_cards/habit_strength_card.dart';
-import '../widgets/detail_cards/strength_progress_card.dart';
-import '../widgets/detail_cards/punch_card_widget.dart';
-import '../widgets/detail_cards/best_streaks_card.dart';
-import '../widgets/detail_cards/history_calendar_card.dart';
-import '../widgets/detail_cards/status_pie_chart_card.dart'; // Import the pie chart card
-// Import other necessary models/utils later
+import '../models/habit_status.dart';
+import 'home_screen.dart'; // Import habitProvider (needed for potential actions)
+import 'add_edit_habit_screen.dart'; // Import AddEditHabitScreen
 
-class HabitDetailScreen extends StatefulWidget {
+// Reverted to the version with CALENDAR and DETAILS tabs
+class HabitDetailScreen extends ConsumerStatefulWidget {
   final Habit habit;
 
   const HabitDetailScreen({super.key, required this.habit});
 
   @override
-  State<HabitDetailScreen> createState() => _HabitDetailScreenState();
+  ConsumerState<HabitDetailScreen> createState() => _HabitDetailScreenState();
 }
 
-// Enum for Date Range Options
-enum DateRangeOption { year, month, week, start, custom }
+class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
+  DateTime? _selectedDay = DateTime.now(); // Keep track of selected day
+  final List<String> _dayNames = const [
+    'Su',
+    'Mo',
+    'Tu',
+    'We',
+    'Th',
+    'Fr',
+    'Sa',
+  ];
 
-class _HabitDetailScreenState extends State<HabitDetailScreen> {
-  DateRangeOption _selectedRange = DateRangeOption.month; // Default range
-  late DateTime _fromDate;
-  late DateTime _toDate;
+  // Define the range for the calendar list
+  late DateTime _firstMonth;
+  late DateTime _lastMonth;
+  late int _totalMonths;
 
   @override
   void initState() {
     super.initState();
-    _updateDateRange(); // Initialize dates based on default range
-  }
-
-  // Updates _fromDate and _toDate based on _selectedRange
-  void _updateDateRange({DateTime? customFrom, DateTime? customTo}) {
-    final now = DateTime.now();
-    _toDate = DateTime.utc(now.year, now.month, now.day); // Today midnight UTC
-
-    switch (_selectedRange) {
-      case DateRangeOption.year:
-        _fromDate = DateTime.utc(_toDate.year - 1, _toDate.month, _toDate.day);
-        break;
-      case DateRangeOption.month:
-        _fromDate = DateTime.utc(_toDate.year, _toDate.month - 1, _toDate.day);
-        break;
-      case DateRangeOption.week:
-        _fromDate = _toDate.subtract(const Duration(days: 6)); // Inclusive week
-        break;
-      case DateRangeOption.start:
-        // Ensure start date is also normalized UTC midnight
-        _fromDate = DateTime.utc(
-          widget.habit.startDate.year,
-          widget.habit.startDate.month,
-          widget.habit.startDate.day,
-        );
-        break;
-      case DateRangeOption.custom:
-        // Use provided dates or keep existing if none provided initially
-        _fromDate = customFrom ?? _fromDate;
-        _toDate = customTo ?? _toDate;
-        break;
-    }
-
-    // Ensure fromDate is not after toDate (can happen with 'start' if habit started today)
-    if (_fromDate.isAfter(_toDate)) {
-      _fromDate = _toDate;
-    }
-  }
-
-  // Function to handle custom date range selection (TODO)
-  Future<void> _selectCustomDateRange() async {
-    // Implement date pickers using showDatePicker
-    // For now, just set to custom and keep existing dates
-    setState(() {
-      _selectedRange = DateRangeOption.custom;
-      // In a real implementation, you'd get dates from pickers here:
-      // final pickedFrom = await showDatePicker(...);
-      // final pickedTo = await showDatePicker(...);
-      // _updateDateRange(customFrom: pickedFrom, customTo: pickedTo);
-    });
-    print("Custom date range selection needs implementation."); // Placeholder
+    _selectedDay = DateTime.utc(
+      DateTime.now().year,
+      DateTime.now().month,
+      DateTime.now().day,
+    );
+    // Determine calendar range
+    _firstMonth = DateTime.utc(
+      widget.habit.startDate.year,
+      widget.habit.startDate.month,
+    );
+    // Example: Show up to 1 year from now + current month
+    _lastMonth = DateTime.utc(DateTime.now().year + 1, DateTime.now().month);
+    _totalMonths =
+        (_lastMonth.year - _firstMonth.year) * 12 +
+        _lastMonth.month -
+        _firstMonth.month +
+        1;
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.habit.name),
-        backgroundColor: Colors.teal, // Keep theme consistent
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-      ),
-      body: ListView(
-        // Use ListView for scrollable content
-        padding: const EdgeInsets.all(16.0),
-        children: [
-          _buildDateFilter(),
-          const SizedBox(height: 20),
-          _buildHabitStrengthCard(),
-          const SizedBox(height: 16),
-          _buildHabitStrengthProgressCard(),
-          const SizedBox(height: 16),
-          _buildPunchCard(),
-          const SizedBox(height: 16),
-          _buildBestStreaksCard(),
-          const SizedBox(height: 16),
-          _buildHistoryCard(),
-          const SizedBox(height: 16),
-          _buildPieChartCard(),
-        ],
-      ),
+    // Watch the provider to get the latest list of habits
+    final allHabits = ref.watch(habitProvider);
+    // Find the specific habit being detailed, using the ID passed via the widget
+    // Use firstWhereOrNull or similar robust method in case the habit was deleted
+    final Habit? liveHabit = allHabits.firstWhere(
+      (h) => h.id == widget.habit.id,
+      orElse:
+          () =>
+              widget
+                  .habit, // Fallback to initial habit if not found (e.g., just deleted)
+      // Note: A more robust solution might pop the screen if the habit is truly gone.
     );
-  }
 
-  // Widget for the Date Range Filter UI
-  Widget _buildDateFilter() {
-    final dateFormat = DateFormat('dd-MM-yyyy');
-    return Card(
-      elevation: 2.0,
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    // If the habit somehow doesn't exist anymore (e.g., deleted), show an empty screen or error
+    if (liveHabit == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text("Habit Not Found")),
+        body: const Center(child: Text("This habit may have been deleted.")),
+      );
+    }
+
+    return DefaultTabController(
+      initialIndex: 0, // Start on CALENDAR tab
+      length: 2, // Only CALENDAR and DETAILS
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(
+            liveHabit.name,
+            overflow: TextOverflow.ellipsis,
+          ), // Use live habit name
+          backgroundColor: Colors.teal,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.edit_outlined, color: Colors.white),
+              onPressed: () {
+                // Navigate to AddEditHabitScreen for editing
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder:
+                        (context) => AddEditHabitScreen(
+                          habit: liveHabit, // Pass live habit
+                        ),
+                  ),
+                );
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.white),
+              onPressed: () {
+                // Show confirmation and delete habit
+                _showDeleteConfirmation(
+                  context,
+                  ref,
+                  liveHabit.id, // Use live habit id
+                );
+              },
+            ),
+          ],
+          bottom: const TabBar(
+            tabs: [Tab(text: 'CALENDAR'), Tab(text: 'DETAILS')],
+            labelColor: Colors.white,
+            indicatorColor: Colors.white,
+            unselectedLabelColor: Colors.white70,
+          ),
+        ),
+        body: TabBarView(
           children: [
-            Row(
-              children: [
-                const Text('Select the Range:'),
-                const Spacer(),
-                DropdownButton<DateRangeOption>(
-                  value: _selectedRange,
-                  items:
-                      DateRangeOption.values.map((DateRangeOption range) {
-                        String text;
-                        switch (range) {
-                          case DateRangeOption.year:
-                            text = 'Year';
-                            break;
-                          case DateRangeOption.month:
-                            text = 'Month';
-                            break;
-                          case DateRangeOption.week:
-                            text = 'Week';
-                            break;
-                          case DateRangeOption.start:
-                            text = 'Start';
-                            break;
-                          case DateRangeOption.custom:
-                            text = 'Custom';
-                            break;
-                        }
-                        return DropdownMenuItem<DateRangeOption>(
-                          value: range,
-                          child: Text(text),
-                        );
-                      }).toList(),
-                  onChanged: (DateRangeOption? newValue) {
-                    if (newValue != null) {
-                      if (newValue == DateRangeOption.custom) {
-                        _selectCustomDateRange(); // Handle custom separately
-                      } else {
-                        setState(() {
-                          _selectedRange = newValue;
-                          _updateDateRange(); // Update dates based on new selection
-                        });
-                      }
-                    }
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('From:', style: TextStyle(color: Colors.grey)),
-                    Text(dateFormat.format(_fromDate)),
-                  ],
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('To:', style: TextStyle(color: Colors.grey)),
-                    Text(dateFormat.format(_toDate)),
-                  ],
-                ),
-                // Add a button to trigger custom date picker if range is custom
-                if (_selectedRange == DateRangeOption.custom)
-                  IconButton(
-                    icon: const Icon(Icons.calendar_today, size: 20),
-                    onPressed: _selectCustomDateRange,
-                    tooltip: 'Select Custom Range',
-                  )
-                else
-                  const SizedBox(width: 48), // Maintain spacing
-              ],
-            ),
+            _buildCalendarTab(liveHabit), // Pass live habit
+            _buildDetailsTab(liveHabit), // Pass live habit
           ],
         ),
       ),
     );
   }
 
-  // --- Card Builder Methods ---
-
-  // Use the actual HabitStrengthCard widget
-  Widget _buildHabitStrengthCard() {
-    return HabitStrengthCard(
-      habit: widget.habit,
-      fromDate: _fromDate,
-      toDate: _toDate,
+  // Confirmation Dialog for Deleting Habit
+  Future<void> _showDeleteConfirmation(
+    BuildContext context,
+    WidgetRef ref,
+    String habitId,
+  ) async {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false, // User must tap button
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete Habit?'),
+          content: const SingleChildScrollView(
+            child: ListBody(
+              children: <Widget>[
+                Text('Are you sure you want to delete this habit?'),
+                Text('This action cannot be undone.'),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop(); // Close the dialog
+              },
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Delete'),
+              onPressed: () {
+                ref.read(habitProvider.notifier).deleteHabit(habitId);
+                Navigator.of(dialogContext).pop(); // Close the dialog
+                Navigator.of(context).pop(); // Go back from detail screen
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 
-  // Use the actual StrengthProgressCard widget
-  Widget _buildHabitStrengthProgressCard() {
-    return StrengthProgressCard(
-      habit: widget.habit,
-      fromDate: _fromDate,
-      toDate: _toDate,
+  // --- Tab Builder Methods ---
+
+  // Builds the vertically scrolling calendar using ListView.builder
+  Widget _buildCalendarTab(Habit habit) {
+    return ListView.builder(
+      itemCount: _totalMonths,
+      itemBuilder: (context, index) {
+        final month = DateTime.utc(_firstMonth.year, _firstMonth.month + index);
+        return _buildMonthView(habit, month.year, month.month);
+      },
     );
   }
 
-  // Use the actual PunchCardWidget
-  Widget _buildPunchCard() {
-    return PunchCardWidget(
-      habit: widget.habit,
-      fromDate: _fromDate,
-      toDate: _toDate,
+  // Builds the view for a single month
+  Widget _buildMonthView(Habit habit, int year, int month) {
+    final daysInMonth = DateUtils.getDaysInMonth(year, month);
+    final firstDayOfMonth = DateTime.utc(year, month, 1);
+    final firstWeekdayOfMonth = firstDayOfMonth.weekday % 7; // 0=Sun, 6=Sat
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Month Header
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              vertical: 8.0,
+              horizontal: 12.0,
+            ),
+            child: Text(
+              DateFormat.yMMMM().format(firstDayOfMonth),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
+          // Day Headers (Su, Mo, ...)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children:
+                _dayNames
+                    .map(
+                      (name) => Text(
+                        name,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    )
+                    .toList(),
+          ),
+          const SizedBox(height: 4),
+          // Calendar Grid
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+            ),
+            // Calculate total cells needed, including leading/trailing empty cells
+            itemCount: (daysInMonth + firstWeekdayOfMonth + 6) ~/ 7 * 7,
+            itemBuilder: (context, index) {
+              final dayOffset = index - firstWeekdayOfMonth;
+              if (dayOffset < 0 || dayOffset >= daysInMonth) {
+                return Container(); // Empty cell outside the month
+              }
+              final day = firstDayOfMonth.add(Duration(days: dayOffset));
+              // Only build cells on or after start date
+              if (day.isBefore(normalizeDate(habit.startDate))) {
+                return Container();
+              }
+              return _buildCalendarDayCell(habit, day);
+            },
+          ),
+          const Divider(height: 20, thickness: 1),
+        ],
+      ),
     );
   }
 
-  // Use the actual BestStreaksCard widget
-  Widget _buildBestStreaksCard() {
-    return BestStreaksCard(
-      habit: widget.habit,
-      fromDate: _fromDate,
-      toDate: _toDate,
+  // Builds a single day cell for the GridView, including connector logic
+  Widget _buildCalendarDayCell(Habit habit, DateTime day) {
+    final normalizedDay = normalizeDate(day); // Use helper
+    final isToday = DateUtils.isSameDay(
+      normalizedDay,
+      DateTime.utc(
+        DateTime.now().year,
+        DateTime.now().month,
+        DateTime.now().day,
+      ),
+    );
+    final isSelected =
+        _selectedDay != null &&
+        DateUtils.isSameDay(normalizedDay, _selectedDay);
+    final currentStatus = habit.getStatusForDate(normalizedDay);
+
+    // Check previous and next day status for connectors
+    final prevDay = normalizedDay.subtract(const Duration(days: 1));
+    final nextDay = normalizedDay.add(const Duration(days: 1));
+    final prevStatus = habit.getStatusForDate(prevDay);
+    final nextStatus = habit.getStatusForDate(nextDay);
+
+    bool showLeftConnector =
+        currentStatus == HabitStatus.done &&
+        prevStatus == HabitStatus.done &&
+        day.weekday != DateTime.sunday &&
+        !prevDay.isBefore(
+          normalizeDate(habit.startDate),
+        ); // Don't connect before start
+    bool showRightConnector =
+        currentStatus == HabitStatus.done &&
+        nextStatus == HabitStatus.done &&
+        day.weekday != DateTime.saturday;
+
+    Color bgColor;
+    Color textColor = Colors.black87;
+    switch (currentStatus) {
+      case HabitStatus.done:
+        bgColor = Colors.green.shade300;
+        textColor = Colors.white;
+        break;
+      case HabitStatus.fail:
+        bgColor = Colors.red.shade300;
+        textColor = Colors.white;
+        break;
+      case HabitStatus.skip:
+        bgColor = Colors.orange.shade300;
+        textColor = Colors.white;
+        break;
+      case HabitStatus.none:
+      default:
+        bgColor = isToday ? Colors.blue.shade100 : Colors.white;
+        textColor = isToday ? Colors.blueAccent : Colors.black87;
+        break;
+    }
+
+    // Build the core day cell content
+    Widget dayContent = Container(
+      margin: const EdgeInsets.all(1.0),
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: bgColor, // Keep original background color based on status/today
+        shape: BoxShape.circle,
+        // Add border and shadow conditionally for selected day
+        border:
+            isSelected
+                ? Border.all(
+                  color: Colors.blueAccent.shade700,
+                  width: 2.0,
+                ) // Distinct border
+                : null,
+        boxShadow:
+            isSelected
+                ? [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    spreadRadius: 1,
+                    blurRadius: 3,
+                    offset: const Offset(0, 1), // changes position of shadow
+                  ),
+                ]
+                : null, // No shadow if not selected
+      ),
+      child: Center(
+        child: Text(
+          '${day.day}',
+          style: TextStyle(
+            // Adjust text color based on selection AND background
+            color:
+                isSelected
+                    ? (bgColor == Colors.white ||
+                            bgColor == Colors.blue.shade100
+                        ? Colors
+                            .blueAccent
+                            .shade700 // Contrast on light selected bg
+                        : Colors.white) // White on dark selected bg
+                    : textColor, // Original color if not selected
+            fontSize: 12,
+            fontWeight:
+                isSelected
+                    ? FontWeight.bold
+                    : FontWeight.normal, // Make selected date bold
+          ),
+        ),
+      ),
+    );
+
+    // Wrap with CustomPaint to draw connectors
+    return CustomPaint(
+      painter: _DayConnectorPainter(
+        drawLeft: showLeftConnector,
+        drawRight: showRightConnector,
+      ),
+      child: InkWell(
+        // Keep InkWell for tap effect and selection
+        onTap: () {
+          setState(() {
+            _selectedDay = normalizedDay;
+          });
+          // Show notes/status for the selected day via bottom sheet
+          _showDayActions(context, habit, normalizedDay);
+        },
+        customBorder: const CircleBorder(),
+        child: dayContent,
+      ),
     );
   }
 
-  // Use the actual HistoryCalendarCard widget
-  Widget _buildHistoryCard() {
-    return HistoryCalendarCard(
-      habit: widget.habit,
-      fromDate: _fromDate,
-      toDate: _toDate,
+  // Show actions/note for the selected day (Refactored UI)
+  void _showDayActions(BuildContext context, Habit habit, DateTime date) {
+    final currentStatus = habit.getStatusForDate(date);
+    final currentNote = habit.getNoteForDate(date);
+    final habitNotifier = ref.read(habitProvider.notifier);
+
+    showModalBottomSheet(
+      context: context,
+      // Add rounded corners
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.0)),
+      ),
+      builder: (context) {
+        // Use Padding and Column for better control
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20.0, horizontal: 16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min, // Take minimum height needed
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              // Centered Title
+              Center(
+                child: Text(
+                  'Update Status for ${DateFormat.yMMMd().format(date)}', // More descriptive format
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24), // Increased spacing
+              // Action Buttons - Use Row with Expanded
+              Row(
+                mainAxisAlignment:
+                    MainAxisAlignment.spaceBetween, // Space out buttons
+                children: [
+                  // Use Expanded to give buttons equal space
+                  Expanded(
+                    child: _buildActionButton(
+                      Icons.check_circle,
+                      'DONE',
+                      Colors.green,
+                      currentStatus == HabitStatus.done,
+                      () {
+                        habitNotifier.updateStatus(
+                          habit.id,
+                          date,
+                          HabitStatus.done,
+                        );
+                        Navigator.pop(context); // Close bottom sheet
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8), // Spacing between buttons
+                  Expanded(
+                    child: _buildActionButton(
+                      Icons.cancel,
+                      'FAIL',
+                      Colors.red,
+                      currentStatus == HabitStatus.fail,
+                      () {
+                        habitNotifier.updateStatus(
+                          habit.id,
+                          date,
+                          HabitStatus.fail,
+                        );
+                        Navigator.pop(context);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildActionButton(
+                      Icons.skip_next,
+                      'SKIP',
+                      Colors.orange,
+                      currentStatus == HabitStatus.skip,
+                      () {
+                        habitNotifier.updateStatus(
+                          habit.id,
+                          date,
+                          HabitStatus.skip,
+                        );
+                        Navigator.pop(context);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildActionButton(
+                      Icons.clear,
+                      'CLEAR',
+                      Colors.grey,
+                      currentStatus == HabitStatus.none,
+                      () {
+                        habitNotifier.updateStatus(
+                          habit.id,
+                          date,
+                          HabitStatus.none,
+                        );
+                        Navigator.pop(context);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 32),
+              // Note Section
+              ListTile(
+                contentPadding: EdgeInsets.zero, // Remove default padding
+                leading: Icon(
+                  Icons.note_alt_outlined,
+                  color: Colors.grey.shade700,
+                ),
+                title: Text(currentNote.isEmpty ? 'Add Note' : 'Edit Note'),
+                // Correctly assign subtitle using ternary operator
+                subtitle:
+                    currentNote.isEmpty
+                        ? null
+                        : Text(
+                          currentNote,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                onTap: () {
+                  Navigator.pop(context); // Close bottom sheet first
+                  _showAddNoteDialog(context, habit, date, currentNote);
+                },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  // Use the actual StatusPieChartCard widget
-  Widget _buildPieChartCard() {
-    return StatusPieChartCard(
-      habit: widget.habit,
-      fromDate: _fromDate,
-      toDate: _toDate,
+  // Updated Helper for action buttons in bottom sheet
+  Widget _buildActionButton(
+    IconData icon,
+    String label,
+    Color color,
+    bool isSelected,
+    VoidCallback onPressed,
+  ) {
+    // Use ElevatedButton for selected, OutlinedButton for others
+    return isSelected
+        ? ElevatedButton.icon(
+          icon: Icon(
+            icon,
+            size: 18,
+            color: Colors.white,
+          ), // White icon on colored button
+          label: Text(
+            label,
+            style: const TextStyle(fontSize: 11, color: Colors.white),
+          ),
+          onPressed: onPressed,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: color, // Main status color
+            foregroundColor: Colors.white, // Text/Icon color
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+            textStyle: const TextStyle(fontWeight: FontWeight.bold),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        )
+        : OutlinedButton.icon(
+          icon: Icon(
+            icon,
+            size: 18,
+            color: color,
+          ), // Colored icon on outlined button
+          label: Text(label, style: TextStyle(fontSize: 11, color: color)),
+          onPressed: onPressed,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: color, // Text/Icon color
+            side: BorderSide(color: color.withOpacity(0.5)), // Border color
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+            textStyle: const TextStyle(fontWeight: FontWeight.bold),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        );
+  }
+
+  // --- Add Note Dialog (Copied from HabitCard initially, might need adjustments) ---
+  void _showAddNoteDialog(
+    BuildContext context,
+    Habit habit,
+    DateTime date,
+    String initialNote,
+  ) {
+    final controller = TextEditingController(text: initialNote);
+    final habitNotifier = ref.read(habitProvider.notifier);
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: Text('Note for ${DateFormat.yMd().format(date)}'),
+            content: TextField(
+              controller: controller,
+              decoration: const InputDecoration(hintText: 'Enter your note'),
+              maxLines: 3,
+              autofocus: true,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () {
+                  habitNotifier.updateNote(habit.id, date, controller.text);
+                  Navigator.pop(context);
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          ),
     );
   }
-} // End of _HabitDetailScreenState
+  // --- End Add Note Dialog ---
 
-// Helper extension for date formatting (optional)
-extension DateOnlyCompare on DateTime {
-  String toShortDateString() => DateFormat('yyyy-MM-dd').format(this);
+  // Builds the Details Tab
+  Widget _buildDetailsTab(Habit habit) {
+    final textTheme = Theme.of(context).textTheme;
+    return Container(
+      // Add background color consistent with Add/Edit screen
+      color: Colors.grey[100],
+      child: ListView(
+        padding: const EdgeInsets.all(16.0),
+        children: [
+          _buildDetailCard(
+            title: 'Description',
+            content: Text(
+              habit.description ?? 'No description provided.',
+              style: textTheme.bodyMedium,
+            ),
+          ),
+          _buildDetailCard(
+            title: 'Target Streak',
+            content: Text(
+              '${habit.targetStreak} days',
+              style: textTheme.bodyMedium,
+            ),
+          ),
+          _buildDetailCard(
+            title: 'Start Date',
+            content: Text(
+              DateFormat.yMMMd().format(habit.startDate),
+              style: textTheme.bodyMedium,
+            ),
+          ),
+          _buildDetailCard(
+            title: 'Schedule',
+            content: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Type: ${habit.scheduleType}',
+                  style: textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Days: ${_getSelectedDaysString(habit.selectedDays)}',
+                  style: textTheme.bodyMedium,
+                ),
+              ],
+            ),
+          ),
+          _buildDetailCard(
+            title: 'Reasons',
+            content:
+                habit.reasons.isEmpty
+                    ? Text(
+                      'No reasons added.',
+                      style: textTheme.bodyMedium?.copyWith(
+                        fontStyle: FontStyle.italic,
+                      ),
+                    )
+                    : Column(
+                      // Display reasons line by line
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children:
+                          habit.reasons
+                              .map(
+                                (reason) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 4.0),
+                                  child: Text(
+                                    '• $reason',
+                                    style: textTheme.bodyMedium,
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                    ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Helper widget for styled detail cards
+  Widget _buildDetailCard({required String title, required Widget content}) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16.0),
+      elevation: 1.0, // Subtle shadow
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8.0),
+            content,
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _getSelectedDaysString(List<bool> selectedDays) {
+    List<String> days = [];
+    for (int i = 0; i < selectedDays.length; i++) {
+      if (selectedDays[i]) {
+        days.add(_dayNames[i]);
+      }
+    }
+    return days.isNotEmpty ? days.join(', ') : 'None';
+  }
+
+  // Helper to normalize date (copied from habit_utils for now)
+  // Consider moving to a shared location if used more widely
+  DateTime normalizeDate(DateTime date) {
+    return DateTime.utc(date.year, date.month, date.day);
+  }
+} // End of _HabitDetailScreenState class
+
+// Custom Painter for the connector line (Keep this definition)
+class _DayConnectorPainter extends CustomPainter {
+  final bool drawLeft;
+  final bool drawRight;
+
+  _DayConnectorPainter({this.drawLeft = false, this.drawRight = false});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (!drawLeft && !drawRight) return;
+
+    final paint =
+        Paint()
+          ..color = Colors.green.shade300
+          ..strokeWidth = 5
+          ..strokeCap = StrokeCap.round;
+
+    final centerY = size.height / 2;
+    final centerX = size.width / 2;
+
+    if (drawLeft) {
+      canvas.drawLine(Offset(0, centerY), Offset(centerX, centerY), paint);
+    }
+    if (drawRight) {
+      canvas.drawLine(
+        Offset(centerX, centerY),
+        Offset(size.width, centerY),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DayConnectorPainter oldDelegate) {
+    // Removed covariant
+    return oldDelegate.drawLeft != drawLeft ||
+        oldDelegate.drawRight != drawRight;
+  }
 }
