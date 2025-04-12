@@ -27,13 +27,14 @@ class HabitAdapter extends TypeAdapter<Habit> {
       scheduleType: fields[8] as String,
       selectedDays: (fields[9] as List).cast<bool>(),
       targetStreak: fields[3] as int,
+      isMastered: fields[10] as bool,
     );
   }
 
   @override
   void write(BinaryWriter writer, Habit obj) {
     writer
-      ..writeByte(10)
+      ..writeByte(11)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -53,7 +54,9 @@ class HabitAdapter extends TypeAdapter<Habit> {
       ..writeByte(8)
       ..write(obj.scheduleType)
       ..writeByte(9)
-      ..write(obj.selectedDays);
+      ..write(obj.selectedDays)
+      ..writeByte(10)
+      ..write(obj.isMastered);
   }
 
   @override

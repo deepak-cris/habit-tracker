@@ -60,9 +60,27 @@ class _HabitCardState extends ConsumerState<HabitCard> {
       Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            habit.name,
-            style: const TextStyle(fontSize: 18.0, fontWeight: FontWeight.bold),
+          // Wrap name in a Row to add the mastered icon
+          Row(
+            children: [
+              Text(
+                habit.name,
+                style: const TextStyle(
+                  fontSize: 18.0,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              // Show star if mastered
+              if (habit.isMastered) // Check the isMastered flag
+                Padding(
+                  padding: const EdgeInsets.only(left: 8.0),
+                  child: Icon(
+                    Icons.star, // Display star icon
+                    color: Colors.amber.shade700, // Gold color
+                    size: 18,
+                  ),
+                ),
+            ],
           ),
           IconButton(
             icon: const Icon(Icons.more_vert),

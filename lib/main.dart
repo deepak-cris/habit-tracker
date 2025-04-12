@@ -1,40 +1,63 @@
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Import for SystemUiOverlayStyle
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'models/habit.dart';
-import 'models/habit_status.dart'; // Import HabitStatus
-import 'auth/auth_notifier.dart'; // Corrected import path
-import 'screens/login_screen.dart'; // Corrected import path
-import 'screens/home_screen.dart'; // Corrected import path
+import 'models/habit_status.dart';
+import 'models/reward.dart'; // Import Reward model
+import 'models/claimed_reward.dart'; // Import ClaimedReward model
+import 'auth/auth_notifier.dart';
+import 'screens/login_screen.dart';
+import 'screens/home_screen.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  WidgetsFlutterBinding.ensureInitialized(); // Corrected typo
   await Firebase.initializeApp();
   await Hive.initFlutter();
 
-  // Register both adapters
+  // Register adapters
   Hive.registerAdapter(HabitAdapter());
-  Hive.registerAdapter(HabitStatusAdapter()); // Register the new adapter
+  Hive.registerAdapter(HabitStatusAdapter());
+  Hive.registerAdapter(RewardAdapter()); // Register Reward adapter
+  Hive.registerAdapter(
+    ClaimedRewardAdapter(),
+  ); // Register ClaimedReward adapter
 
-  await Hive.openBox(
-    'habits',
-  ); // Consider opening separate boxes if needed later
+  // Open required boxes
+  await Hive.openBox('habits');
+  await Hive.openBox('userProfile'); // For points and achievements
+  await Hive.openBox<Reward>('rewards'); // Box for custom rewards
+  await Hive.openBox<ClaimedReward>(
+    'claimedRewards',
+  ); // Box for claimed rewards
+
   runApp(const ProviderScope(child: MyApp()));
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Habit Tracker', // Changed title
       theme: ThemeData(
-        // This is the theme of your application.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.teal,
+        ), // Use teal as seed
+        useMaterial3: true, // Enable Material 3
+        appBarTheme: const AppBarTheme(
+          // Consistent AppBar style
+          backgroundColor: Colors.teal,
+          foregroundColor: Colors.white,
+          elevation: 2,
+          systemOverlayStyle: SystemUiOverlayStyle.light,
+        ),
+        floatingActionButtonTheme: const FloatingActionButtonThemeData(
+          backgroundColor: Colors.pinkAccent, // Consistent FAB color
+          foregroundColor: Colors.white,
+        ),
       ),
       home: Consumer(
         builder: (context, ref, _) {

@@ -2,20 +2,30 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/habit.dart';
 import '../models/habit_status.dart';
-import '../auth/auth_notifier.dart';
+import '../auth/auth_notifier.dart'; // Ensure this import is present
 import '../widgets/habit_card.dart';
-import '../widgets/habit_graph_card.dart'; // Import the graph card
+import '../widgets/habit_graph_card.dart';
 import 'add_edit_habit_screen.dart';
 import 'habit_detail_screen.dart'; // Import the Calendar/Details screen
-import 'habit_stats_screen.dart'; // Import the Statistics screen
+import 'habit_stats_screen.dart';
+import '../providers/points_provider.dart';
+import '../providers/achievement_provider.dart';
+import '../providers/reward_provider.dart';
+import '../models/reward.dart';
+import '../models/achievement.dart';
+import 'add_edit_reward_screen.dart'; // Import the Add/Edit Reward screen
+import '../utils/habit_utils.dart'; // Import habit utils for streak calculation
 
 // --- Habit State Management ---
-final habitProvider = StateNotifierProvider<HabitNotifier, List<Habit>>(
-  (ref) => HabitNotifier(),
-);
+final habitProvider = StateNotifierProvider<HabitNotifier, List<Habit>>((ref) {
+  // Pass ref to notifier so it can read other providers
+  return HabitNotifier(ref);
+});
 
 class HabitNotifier extends StateNotifier<List<Habit>> {
-  HabitNotifier() : super(_initialHabits) {
+  final Ref _ref; // Keep ref to read other providers
+
+  HabitNotifier(this._ref) : super(_initialHabits) {
     // Ensure initial habits have normalized dates in maps
     _initialHabits.forEach((habit) {
       // This part is tricky as the state is final.
@@ -85,6 +95,7 @@ class HabitNotifier extends StateNotifier<List<Habit>> {
           false,
         ], // Su, Mo, Tu, We, Th, Fr, Sa
         targetStreak: 14, // Example target streak
+        isMastered: false, // Default to false
       );
     }(), // Immediately invoke the function to create the habit
   ];
@@ -112,6 +123,7 @@ class HabitNotifier extends StateNotifier<List<Habit>> {
         scheduleType: scheduleType,
         selectedDays: selectedDays,
         targetStreak: targetStreak,
+        isMastered: false, // Ensure new habits start as not mastered
       ),
     ];
   }
@@ -124,39 +136,139 @@ class HabitNotifier extends StateNotifier<List<Habit>> {
   // Update status for a specific date (using helper)
   void updateStatus(String habitId, DateTime date, HabitStatus status) {
     final normalizedDate = _normalizeDate(date); // Use helper
+    Habit? originalHabit; // Store original habit to check status change
+    List<Habit> newState = []; // Build the new state list
 
-    state =
-        state.map((habit) {
-          if (habit.id == habitId) {
-            // Create a mutable copy of the map
-            final newStatusMap = Map<DateTime, HabitStatus>.from(
-              habit.dateStatus,
+    // First pass: Update the status and store the original habit
+    for (final habit in state) {
+      if (habit.id == habitId) {
+        originalHabit = habit; // Store the original state before modification
+        // Create a mutable copy of the map
+        final newStatusMap = Map<DateTime, HabitStatus>.from(habit.dateStatus);
+        // Update or remove the status for the normalized date
+        if (status == HabitStatus.none) {
+          newStatusMap.remove(normalizedDate); // Remove if setting back to none
+        } else {
+          newStatusMap[normalizedDate] = status;
+        }
+        // Add the updated habit (without isMastered change yet)
+        newState.add(
+          Habit(
+            id: habit.id,
+            name: habit.name,
+            description: habit.description,
+            reasons: habit.reasons,
+            dateStatus: newStatusMap, // Use updated status map
+            notes: habit.notes,
+            startDate: habit.startDate,
+            scheduleType: habit.scheduleType,
+            selectedDays: habit.selectedDays,
+            targetStreak: habit.targetStreak,
+            isMastered:
+                habit.isMastered, // Keep original mastered status for now
+          ),
+        );
+      } else {
+        newState.add(habit); // Add unchanged habits
+      }
+    }
+
+    // --- Award Points & Check Achievements ---
+    if (originalHabit != null) {
+      final previousStatus = originalHabit!.getStatusForDate(normalizedDate);
+      // Award points only when changing *to* Done from something else
+      if (status == HabitStatus.done && previousStatus != HabitStatus.done) {
+        _ref.read(pointsProvider.notifier).addPoints(10); // Award 10 points
+      }
+      // TODO: Consider if points should be deducted on changing *from* Done?
+
+      // Check achievements after any status update
+      // Calculate overall streak for the *updated* habit first
+      final updatedHabitForCheck = newState.firstWhere((h) => h.id == habitId);
+      int overallLongestStreakForCheck = _calculateOverallLongestStreak(
+        updatedHabitForCheck,
+      );
+      // Call the per-habit check method in AchievementNotifier
+      _ref
+          .read(unlockedAchievementsProvider.notifier)
+          .checkAndUnlockAchievementsForHabit(
+            updatedHabitForCheck,
+            overallLongestStreakForCheck,
+          );
+
+      // --- Check for Habit Mastered ---
+      // Find the updated habit in the new state list
+      final updatedHabitIndex = newState.indexWhere((h) => h.id == habitId);
+      if (updatedHabitIndex != -1) {
+        final updatedHabit = newState[updatedHabitIndex];
+        if (!updatedHabit.isMastered) {
+          // Only check if not already mastered
+          // Calculate overall longest streak for *this* habit
+          int overallLongestStreak = _calculateOverallLongestStreak(
+            updatedHabit,
+          );
+          if (overallLongestStreak >= 21) {
+            print("Habit ${updatedHabit.name} mastered!");
+            // Mark as mastered - create a new instance and replace in the list
+            newState[updatedHabitIndex] = Habit(
+              id: updatedHabit.id,
+              name: updatedHabit.name,
+              description: updatedHabit.description,
+              reasons: updatedHabit.reasons,
+              dateStatus: updatedHabit.dateStatus,
+              notes: updatedHabit.notes,
+              startDate: updatedHabit.startDate,
+              scheduleType: updatedHabit.scheduleType,
+              selectedDays: updatedHabit.selectedDays,
+              targetStreak: updatedHabit.targetStreak,
+              isMastered: true, // Set the flag
             );
-            // Update or remove the status for the normalized date
-            if (status == HabitStatus.none) {
-              newStatusMap.remove(
-                normalizedDate,
-              ); // Remove if setting back to none
-            } else {
-              newStatusMap[normalizedDate] = status;
-            }
-            // Return a new Habit object with the updated status map and all other fields
-            return Habit(
-              id: habit.id,
-              name: habit.name,
-              description: habit.description,
-              reasons: habit.reasons,
-              dateStatus: newStatusMap,
-              notes: habit.notes,
-              startDate: habit.startDate,
-              scheduleType: habit.scheduleType,
-              selectedDays: habit.selectedDays,
-              targetStreak: habit.targetStreak,
-            );
+            // TODO: Persist this change too
           }
-          return habit;
-        }).toList();
-    // TODO: Persist changes to Hive later
+        }
+      }
+    }
+
+    state = newState; // Assign the final updated list to the state
+    // TODO: Persist changes to Hive later (consider saving points/achievements too)
+  }
+
+  // Helper function to calculate the overall longest streak for a single habit
+  int _calculateOverallLongestStreak(Habit habit) {
+    int longestStreak = 0;
+    int currentStreak = 0;
+    // Get all status dates and sort them
+    final sortedDates = habit.dateStatus.keys.toList()..sort();
+
+    if (sortedDates.isEmpty) return 0;
+
+    // Iterate from start date up to the last recorded date or today, whichever is later
+    DateTime checkDate = habit.startDate;
+    DateTime lastDateToCheck = _normalizeDate(DateTime.now());
+    if (sortedDates.last.isAfter(lastDateToCheck)) {
+      lastDateToCheck = sortedDates.last;
+    }
+
+    while (!checkDate.isAfter(lastDateToCheck)) {
+      final normalizedCheckDate = _normalizeDate(checkDate);
+      final status = habit.dateStatus[normalizedCheckDate] ?? HabitStatus.none;
+
+      if (status == HabitStatus.done) {
+        currentStreak++;
+      } else if (status == HabitStatus.skip) {
+        // Skips don't break the streak, but don't increment it either
+      } else {
+        // Fail or None breaks the streak
+        longestStreak =
+            longestStreak > currentStreak ? longestStreak : currentStreak;
+        currentStreak = 0;
+      }
+      checkDate = checkDate.add(const Duration(days: 1));
+    }
+    // Final check in case the streak ended on the last day checked
+    longestStreak =
+        longestStreak > currentStreak ? longestStreak : currentStreak;
+    return longestStreak;
   }
 
   // Add/Update note for a specific date (using helper)
@@ -184,6 +296,7 @@ class HabitNotifier extends StateNotifier<List<Habit>> {
               scheduleType: habit.scheduleType,
               selectedDays: habit.selectedDays,
               targetStreak: habit.targetStreak,
+              isMastered: habit.isMastered, // Include isMastered
             );
           }
           return habit;
@@ -228,9 +341,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
-    // No longer need to watch habits here if HabitCard handles its own data/navigation
-    // final habits = ref.watch(habitProvider);
-
     // Remove DefaultTabController, use the state's _tabController
     return Scaffold(
       appBar: AppBar(
@@ -296,8 +406,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       body: TabBarView(
         controller: _tabController, // Assign controller
         children: [
-          const Center(child: Text('Rewards Screen (TODO)')), // REWARDS Tab
-
+          _buildRewardsTab(), // REWARDS Tab (New build method)
           _buildHabitsTab(), // HABITS Tab
           _buildGraphsTab(), // GRAPHS Tab
         ],
@@ -362,6 +471,294 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               ),
             );
           },
+        );
+      },
+    );
+  }
+
+  // --- Build Method for REWARDS Tab ---
+  Widget _buildRewardsTab() {
+    final points = ref.watch(pointsProvider);
+    final rewards = ref.watch(rewardProvider);
+    final unlockedAchievementIds = ref.watch(unlockedAchievementsProvider);
+    final allAchievements = ref.watch(predefinedAchievementsProvider);
+
+    // --- Prepare Data for Achievement List ---
+    final allHabits = ref.watch(habitProvider); // Need habits to get names
+    final List<Map<String, dynamic>> unlockedInstances = [];
+
+    unlockedAchievementIds.forEach((achievementId, habitIdList) {
+      // Find the achievement definition
+      final achievement = allAchievements.firstWhere(
+        (a) => a.id == achievementId,
+        orElse:
+            () => const Achievement(
+              id: 'not_found',
+              name: 'Unknown',
+              description: '',
+              iconCodePoint: 0xe335,
+              criteria: {},
+            ), // Placeholder if not found
+      );
+
+      for (final habitId in habitIdList) {
+        // Find the habit name
+        final habit = allHabits.firstWhere(
+          (h) => h.id == habitId,
+          orElse:
+              () => Habit(
+                id: habitId,
+                name: 'Deleted Habit',
+                dateStatus: {},
+                notes: {},
+                startDate: DateTime.now(),
+                selectedDays: [],
+              ), // Placeholder if habit deleted
+        );
+        unlockedInstances.add({
+          'achievement': achievement,
+          'habitName': habit.name,
+        });
+      }
+    });
+    // Optional: Sort the instances, e.g., by achievement name then habit name
+    // unlockedInstances.sort((a, b) => ...);
+
+    return ListView(
+      padding: const EdgeInsets.all(16.0),
+      children: [
+        // --- Points Display ---
+        Card(
+          elevation: 2,
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.star, color: Colors.amber.shade700, size: 30),
+                const SizedBox(width: 12),
+                Text(
+                  '$points Points',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        // --- Custom Rewards Section ---
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Rewards',
+              style: Theme.of(context).textTheme.titleLarge,
+            ), // Renamed title
+            IconButton(
+              icon: const Icon(
+                Icons.add_circle_outline,
+                color: Colors.pinkAccent,
+              ),
+              tooltip: 'Add Custom Reward',
+              onPressed: () {
+                // Navigate to AddEditRewardScreen
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder:
+                        (context) =>
+                            const AddEditRewardScreen(), // Navigate to add/edit screen
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+        const Divider(),
+        if (rewards.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16.0),
+            child: Center(
+              child: Text(
+                'Add some custom rewards!',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+          )
+        else
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: rewards.length,
+            itemBuilder: (context, index) {
+              final reward = rewards[index];
+              final canAfford = points >= reward.pointCost;
+              return ListTile(
+                leading: Icon(
+                  reward.iconCodePoint != null
+                      ? IconData(
+                        reward.iconCodePoint!,
+                        fontFamily: 'MaterialIcons',
+                      )
+                      : Icons.card_giftcard,
+                  color: Colors.teal,
+                ),
+                title: Text(reward.name),
+                subtitle: Text(
+                  '${reward.pointCost} Points ${reward.description != null ? "- ${reward.description}" : ""}',
+                ),
+                trailing: ElevatedButton(
+                  onPressed:
+                      canAfford
+                          ? () {
+                            // Show confirmation dialog before claiming
+                            _showClaimConfirmation(context, ref, reward);
+                          }
+                          : null, // Disable if cannot afford
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor:
+                        canAfford ? Colors.amber.shade800 : Colors.grey,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    textStyle: const TextStyle(fontSize: 12),
+                  ),
+                  child: const Text('Claim'),
+                ),
+                onLongPress: () {
+                  // TODO: Show edit/delete options
+                  print("Long press to edit/delete ${reward.name} (TODO)");
+                },
+              );
+            },
+          ),
+        const SizedBox(height: 24),
+
+        // --- Achievements Section ---
+        Text('Achievements', style: Theme.of(context).textTheme.titleLarge),
+        const Divider(),
+        if (unlockedInstances.isEmpty) // Use the correct variable name here
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16.0),
+            child: Center(
+              child: Text(
+                'Keep going to unlock achievements!',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+          )
+        else
+          // Build ListView from the flattened list of unlocked instances
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount:
+                unlockedInstances.length, // Use the correct variable name here
+            itemBuilder: (context, index) {
+              final instance =
+                  unlockedInstances[index]; // Use the correct variable name here
+              final Achievement achievement = instance['achievement'];
+              final String habitName = instance['habitName'];
+
+              // Replace placeholder in description
+              final String description = achievement.description.replaceAll(
+                '{habitName}',
+                "'$habitName'",
+              );
+
+              return Card(
+                // Wrap ListTile in a Card for similar look
+                margin: const EdgeInsets.symmetric(vertical: 4.0),
+                elevation: 1,
+                child: ListTile(
+                  leading: Icon(
+                    IconData(
+                      achievement.iconCodePoint,
+                      fontFamily: 'MaterialIcons',
+                    ),
+                    size: 30,
+                    color: Colors.amber.shade700,
+                  ),
+                  title: Text(
+                    achievement.name,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text(
+                    description,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  // isThreeLine: true, // Allow more space if descriptions are long
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  // --- Confirmation Dialog for Claiming Reward ---
+  Future<void> _showClaimConfirmation(
+    BuildContext context,
+    WidgetRef ref,
+    Reward reward,
+  ) async {
+    final reasonController =
+        TextEditingController(); // Controller for the reason
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: Text('Claim Reward?'),
+          content: SingleChildScrollView(
+            // Wrap in case of small screens
+            child: ListBody(
+              children: <Widget>[
+                Text('Claim "${reward.name}" for ${reward.pointCost} points?'),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: reasonController,
+                  decoration: const InputDecoration(
+                    hintText: 'Reason for claiming (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+              },
+            ),
+            TextButton(
+              child: const Text('Claim'),
+              onPressed: () {
+                bool claimed = ref
+                    .read(rewardProvider.notifier)
+                    .claimReward(
+                      reward.id,
+                      reasonController.text.trim(),
+                    ); // Pass reason
+                Navigator.of(dialogContext).pop(); // Close dialog first
+                if (!claimed && mounted) {
+                  // Check if widget is still mounted
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Not enough points!'),
+                      backgroundColor: Colors.redAccent,
+                    ),
+                  );
+                }
+              },
+            ),
+          ],
         );
       },
     );

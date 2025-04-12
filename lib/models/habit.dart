@@ -41,6 +41,10 @@ class Habit extends HiveObject {
 
   @HiveField(9)
   final List<bool> selectedDays; // For fixed schedule (length 7, Su-Sa)
+
+  @HiveField(10) // Next available index
+  final bool isMastered; // Flag for 21-day streak completion
+
   // TODO: Add fields for flexible schedule if needed (e.g., frequency, interval)
 
   Habit({
@@ -54,6 +58,7 @@ class Habit extends HiveObject {
     this.scheduleType = 'Fixed', // Default schedule
     required this.selectedDays,
     this.targetStreak = 21,
+    this.isMastered = false, // Default to false
   });
 
   // Helper to get status for a specific date (defaults to none)
