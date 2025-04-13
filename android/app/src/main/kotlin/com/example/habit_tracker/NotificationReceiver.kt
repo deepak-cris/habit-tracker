@@ -8,22 +8,43 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import android.app.PendingIntent // Import PendingIntent
 
 class NotificationReceiver : BroadcastReceiver() {
 
     companion object {
-        const val CHANNEL_ID = "habit_reminders_channel"
+        const val CHANNEL_ID = "habit_reminders_channel" // Keep only one declaration
         const val EXTRA_NOTIFICATION_ID = "notification_id"
         const val EXTRA_NOTIFICATION_TITLE = "notification_title"
         const val EXTRA_NOTIFICATION_BODY = "notification_body"
+        const val EXTRA_HABIT_ID = "habit_id" // Key for habit ID extra
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0)
         val title = intent.getStringExtra(EXTRA_NOTIFICATION_TITLE) ?: "Habit Reminder"
         val body = intent.getStringExtra(EXTRA_NOTIFICATION_BODY) ?: "Time for your habit!"
+        val habitId = intent.getStringExtra(EXTRA_HABIT_ID) // Extract habitId
 
         createNotificationChannel(context)
+
+        // Create Intent to launch MainActivity
+        val launchIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP // Standard flags
+            action = Intent.ACTION_MAIN // Define action to prevent issues on some devices
+            addCategory(Intent.CATEGORY_LAUNCHER) // Define category
+            if (habitId != null) {
+                putExtra(EXTRA_HABIT_ID, habitId) // Pass habitId to MainActivity
+            }
+        }
+
+        // Create PendingIntent for notification tap
+        val contentPendingIntent: PendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId, // Use notificationId as request code for uniqueness
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher) // Use the default app icon
@@ -31,6 +52,7 @@ class NotificationReceiver : BroadcastReceiver() {
             .setContentText(body)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true) // Dismiss notification when tapped
+            .setContentIntent(contentPendingIntent) // Set the tap action
 
         with(NotificationManagerCompat.from(context)) {
             // notificationId is a unique int for each notification that you must define

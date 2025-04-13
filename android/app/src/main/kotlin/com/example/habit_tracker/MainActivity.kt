@@ -14,13 +14,42 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.util.Calendar
+import android.os.Bundle // Needed for onCreate
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.habit_tracker.app/notifications" // Same name as in Dart
+    private var pendingHabitId: String? = null // To store habit ID from launch/new intent
+    private var channel: MethodChannel? = null // Hold the channel reference
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        handleIntent(intent) // Handle intent used to launch the activity
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent) // Update the activity's intent in case it's needed later
+        handleIntent(intent) // Handle intent received while activity is running
+        // If Flutter engine is ready, send the ID immediately
+        sendPendingHabitIdToFlutter()
+    }
+
+     private fun handleIntent(intent: Intent?) {
+        val habitId = intent?.getStringExtra(NotificationReceiver.EXTRA_HABIT_ID)
+        if (habitId != null) {
+            println("MainActivity received intent with habitId: $habitId")
+            pendingHabitId = habitId
+            // Clear the extra from the intent so it's not processed again on configuration change
+            intent.removeExtra(NotificationReceiver.EXTRA_HABIT_ID)
+        }
+    }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+
+        // Initialize the channel and set the handler
+        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+        channel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "scheduleWeeklyNotification" -> {
                     val id = call.argument<Int>("id")
@@ -29,12 +58,13 @@ class MainActivity : FlutterActivity() {
                     val hour = call.argument<Int>("hour")
                     val minute = call.argument<Int>("minute")
                     val weekday = call.argument<Int>("weekday") // Android Calendar weekday (Sun=1, Sat=7)
+                    val habitId = call.argument<String>("habitId") // Get habitId
 
-                    if (id != null && title != null && body != null && hour != null && minute != null && weekday != null) {
-                       val scheduled = scheduleWeeklyNotification(id, title, body, hour, minute, weekday)
+                    if (id != null && title != null && body != null && hour != null && minute != null && weekday != null && habitId != null) {
+                       val scheduled = scheduleWeeklyNotification(id, title, body, hour, minute, weekday, habitId) // Pass habitId
                        result.success(scheduled) // Return true if scheduled, false if permission missing
                     } else {
-                        result.error("INVALID_ARGS", "Missing or invalid arguments for scheduleWeeklyNotification", null)
+                        result.error("INVALID_ARGS", "Missing or invalid arguments for scheduleWeeklyNotification", call.arguments)
                     }
                 }
                 "cancelNotification" -> {
@@ -56,12 +86,13 @@ class MainActivity : FlutterActivity() {
                     val body = call.argument<String>("body")
                     val hour = call.argument<Int>("hour")
                     val minute = call.argument<Int>("minute")
+                    val habitId = call.argument<String>("habitId") // Get habitId
 
-                    if (id != null && title != null && body != null && hour != null && minute != null) {
-                       val scheduled = scheduleDailyNotification(id, title, body, hour, minute)
+                    if (id != null && title != null && body != null && hour != null && minute != null && habitId != null) {
+                       val scheduled = scheduleDailyNotification(id, title, body, hour, minute, habitId) // Pass habitId
                        result.success(scheduled)
                     } else {
-                        result.error("INVALID_ARGS", "Missing or invalid arguments for scheduleDailyNotification", null)
+                        result.error("INVALID_ARGS", "Missing or invalid arguments for scheduleDailyNotification", call.arguments)
                     }
                  }
                  "scheduleSpecificDateNotification" -> {
@@ -69,12 +100,13 @@ class MainActivity : FlutterActivity() {
                      val title = call.argument<String>("title")
                      val body = call.argument<String>("body")
                      val timestampMillis = call.argument<Long>("timestampMillis")
+                     val habitId = call.argument<String>("habitId") // Get habitId
 
-                     if (id != null && title != null && body != null && timestampMillis != null) {
-                        val scheduled = scheduleSpecificDateNotification(id, title, body, timestampMillis)
+                     if (id != null && title != null && body != null && timestampMillis != null && habitId != null) {
+                        val scheduled = scheduleSpecificDateNotification(id, title, body, timestampMillis, habitId) // Pass habitId
                         result.success(scheduled)
                      } else {
-                         result.error("INVALID_ARGS", "Missing or invalid arguments for scheduleSpecificDateNotification", null)
+                         result.error("INVALID_ARGS", "Missing or invalid arguments for scheduleSpecificDateNotification", call.arguments)
                      }
                  }
                  else -> {
@@ -82,16 +114,27 @@ class MainActivity : FlutterActivity() {
                  }
             }
          }
+         // After setting up the handler, check if there's a pending ID to send
+         sendPendingHabitIdToFlutter()
+     }
+
+     private fun sendPendingHabitIdToFlutter() {
+         if (pendingHabitId != null && channel != null) {
+             println("Sending pending habitId $pendingHabitId to Flutter")
+             channel?.invokeMethod("handleNotificationTap", mapOf("habitId" to pendingHabitId))
+             pendingHabitId = null // Clear it after sending
+         }
      }
 
      // --- Scheduling Methods ---
 
-     private fun scheduleWeeklyNotification(id: Int, title: String, body: String, hour: Int, minute: Int, weekday: Int): Boolean {
+     private fun scheduleWeeklyNotification(id: Int, title: String, body: String, hour: Int, minute: Int, weekday: Int, habitId: String): Boolean { // Add habitId param
          val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
          val intent = Intent(this, NotificationReceiver::class.java).apply {
             putExtra(NotificationReceiver.EXTRA_NOTIFICATION_ID, id)
             putExtra(NotificationReceiver.EXTRA_NOTIFICATION_TITLE, title)
             putExtra(NotificationReceiver.EXTRA_NOTIFICATION_BODY, body)
+            putExtra(NotificationReceiver.EXTRA_HABIT_ID, habitId) // Add habitId to intent extras
         }
 
         // Use the notification ID as the request code for PendingIntent to ensure uniqueness
@@ -144,12 +187,13 @@ class MainActivity : FlutterActivity() {
          }
      }
 
-      private fun scheduleDailyNotification(id: Int, title: String, body: String, hour: Int, minute: Int): Boolean {
+      private fun scheduleDailyNotification(id: Int, title: String, body: String, hour: Int, minute: Int, habitId: String): Boolean { // Add habitId param
          val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
          val intent = Intent(this, NotificationReceiver::class.java).apply {
              putExtra(NotificationReceiver.EXTRA_NOTIFICATION_ID, id)
              putExtra(NotificationReceiver.EXTRA_NOTIFICATION_TITLE, title)
              putExtra(NotificationReceiver.EXTRA_NOTIFICATION_BODY, body)
+             putExtra(NotificationReceiver.EXTRA_HABIT_ID, habitId) // Add habitId to intent extras
          }
          val pendingIntent = PendingIntent.getBroadcast(
              this, id, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -205,12 +249,13 @@ class MainActivity : FlutterActivity() {
          }
      }
 
-      private fun scheduleSpecificDateNotification(id: Int, title: String, body: String, timestampMillis: Long): Boolean {
+      private fun scheduleSpecificDateNotification(id: Int, title: String, body: String, timestampMillis: Long, habitId: String): Boolean { // Add habitId param
          val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
          val intent = Intent(this, NotificationReceiver::class.java).apply {
              putExtra(NotificationReceiver.EXTRA_NOTIFICATION_ID, id)
              putExtra(NotificationReceiver.EXTRA_NOTIFICATION_TITLE, title)
              putExtra(NotificationReceiver.EXTRA_NOTIFICATION_BODY, body)
+             putExtra(NotificationReceiver.EXTRA_HABIT_ID, habitId) // Add habitId to intent extras
          }
          val pendingIntent = PendingIntent.getBroadcast(
              this, id, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

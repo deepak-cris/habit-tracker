@@ -72,13 +72,16 @@ class NotificationService {
           print(
             "Invoking scheduleSpecificDateNotification: ID=$notificationId, Timestamp=$timestampMillis",
           );
-          final bool? scheduled = await platform
-              .invokeMethod<bool>('scheduleSpecificDateNotification', {
-                'id': notificationId,
-                'title': 'Habit Reminder',
-                'body': notificationBody,
-                'timestampMillis': timestampMillis,
-              });
+          final bool? scheduled = await platform.invokeMethod<bool>(
+            'scheduleSpecificDateNotification',
+            {
+              'id': notificationId,
+              'title': 'Habit Reminder',
+              'body': notificationBody,
+              'timestampMillis': timestampMillis,
+              'habitId': habit.id, // Pass habitId
+            },
+          );
 
           if (scheduled == true) {
             print(
@@ -135,14 +138,17 @@ class NotificationService {
             print(
               "Invoking scheduleDailyNotification: ID=$notificationId, Time=${reminderTime.hour}:${reminderTime.minute}",
             );
-            final bool? scheduled = await platform
-                .invokeMethod<bool>('scheduleDailyNotification', {
-                  'id': notificationId,
-                  'title': 'Habit Reminder',
-                  'body': notificationBody,
-                  'hour': reminderTime.hour,
-                  'minute': reminderTime.minute,
-                });
+            final bool? scheduled = await platform.invokeMethod<bool>(
+              'scheduleDailyNotification',
+              {
+                'id': notificationId,
+                'title': 'Habit Reminder',
+                'body': notificationBody,
+                'hour': reminderTime.hour,
+                'minute': reminderTime.minute,
+                'habitId': habit.id, // Pass habitId
+              },
+            );
             if (scheduled == true) {
               print(
                 "Successfully scheduled daily notification $notificationId.",
@@ -175,15 +181,18 @@ class NotificationService {
                   print(
                     "Invoking scheduleWeeklyNotification: ID=$notificationId, Weekday=$androidWeekday, Time=${reminderTime.hour}:${reminderTime.minute}",
                   );
-                  final bool? scheduled = await platform
-                      .invokeMethod<bool>('scheduleWeeklyNotification', {
-                        'id': notificationId,
-                        'title': 'Habit Reminder',
-                        'body': notificationBody,
-                        'hour': reminderTime.hour,
-                        'minute': reminderTime.minute,
-                        'weekday': androidWeekday,
-                      });
+                  final bool? scheduled = await platform.invokeMethod<bool>(
+                    'scheduleWeeklyNotification',
+                    {
+                      'id': notificationId,
+                      'title': 'Habit Reminder',
+                      'body': notificationBody,
+                      'hour': reminderTime.hour,
+                      'minute': reminderTime.minute,
+                      'weekday': androidWeekday,
+                      'habitId': habit.id, // Pass habitId
+                    },
+                  );
 
                   if (scheduled == true) {
                     print(
