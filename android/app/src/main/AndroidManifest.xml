@@ -1,4 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Permissions for Notifications -->
+    <!-- Required for Android 13 (API 33)+ to show notifications -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Required for scheduling exact alarms (used by flutter_local_notifications) -->
+    <!-- For Android 14+, user must grant this manually in app settings -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
     <application
         android:label="habit_tracker"
         android:name="${applicationName}"

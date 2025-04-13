@@ -1,3 +1,4 @@
+import 'package:collection/collection.dart'; // Import collection package
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -57,82 +58,133 @@ class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Watch the provider to get the latest list of habits
-    final allHabits = ref.watch(habitProvider);
-    // Find the specific habit being detailed, using the ID passed via the widget
-    // Use firstWhereOrNull or similar robust method in case the habit was deleted
-    final Habit? liveHabit = allHabits.firstWhere(
-      (h) => h.id == widget.habit.id,
-      orElse:
-          () =>
-              widget
-                  .habit, // Fallback to initial habit if not found (e.g., just deleted)
-      // Note: A more robust solution might pop the screen if the habit is truly gone.
-    );
+    // Watch the AsyncValue state of the habit provider
+    final habitsAsync = ref.watch(habitProvider);
 
-    // If the habit somehow doesn't exist anymore (e.g., deleted), show an empty screen or error
-    if (liveHabit == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text("Habit Not Found")),
-        body: const Center(child: Text("This habit may have been deleted.")),
-      );
-    }
+    // Use .when to handle loading, error, and data states
+    return habitsAsync.when(
+      loading:
+          () => Scaffold(
+            appBar: AppBar(
+              title: Text(widget.habit.name), // Show initial name while loading
+              backgroundColor: Colors.teal,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+            body: const Center(child: CircularProgressIndicator()),
+          ),
+      error:
+          (error, stackTrace) => Scaffold(
+            appBar: AppBar(
+              title: Text(widget.habit.name), // Show initial name on error
+              backgroundColor: Colors.teal,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Text(
+                  'Error loading habit details: $error',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ),
+      data: (allHabits) {
+        // Find the specific habit being detailed using firstWhereOrNull
+        final Habit? liveHabit = allHabits.firstWhereOrNull(
+          (h) => h.id == widget.habit.id,
+        );
 
-    return DefaultTabController(
-      initialIndex: 0, // Start on CALENDAR tab
-      length: 2, // Only CALENDAR and DETAILS
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(
-            liveHabit.name,
-            overflow: TextOverflow.ellipsis,
-          ), // Use live habit name
-          backgroundColor: Colors.teal,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.edit_outlined, color: Colors.white),
-              onPressed: () {
-                // Navigate to AddEditHabitScreen for editing
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder:
-                        (context) => AddEditHabitScreen(
-                          habit: liveHabit, // Pass live habit
-                        ),
-                  ),
-                );
-              },
+        // If the habit is not found in the live list (e.g., deleted)
+        if (liveHabit == null) {
+          // Optionally pop the screen automatically after a delay
+          // WidgetsBinding.instance.addPostFrameCallback((_) {
+          //   if (mounted) { // Check if the widget is still in the tree
+          //     Navigator.of(context).pop();
+          //     ScaffoldMessenger.of(context).showSnackBar(
+          //       const SnackBar(content: Text("Habit has been deleted.")),
+          //     );
+          //   }
+          // });
+          return Scaffold(
+            appBar: AppBar(
+              title: Text(widget.habit.name), // Show original name
+              backgroundColor: Colors.teal,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
             ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline, color: Colors.white),
-              onPressed: () {
-                // Show confirmation and delete habit
-                _showDeleteConfirmation(
-                  context,
-                  ref,
-                  liveHabit.id, // Use live habit id
-                );
-              },
+            body: const Center(
+              child: Text("This habit may have been deleted."),
             ),
-          ],
-          bottom: const TabBar(
-            tabs: [Tab(text: 'CALENDAR'), Tab(text: 'DETAILS')],
-            labelColor: Colors.white,
-            indicatorColor: Colors.white,
-            unselectedLabelColor: Colors.white70,
+          );
+        }
+
+        // If habit is found, build the main UI
+        return DefaultTabController(
+          initialIndex: 0, // Start on CALENDAR tab
+          length: 2, // Only CALENDAR and DETAILS
+          child: Scaffold(
+            appBar: AppBar(
+              title: Text(
+                liveHabit.name,
+                overflow: TextOverflow.ellipsis,
+              ), // Use live habit name
+              backgroundColor: Colors.teal,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined, color: Colors.white),
+                  onPressed: () {
+                    // Navigate to AddEditHabitScreen for editing
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder:
+                            (context) => AddEditHabitScreen(
+                              habit: liveHabit, // Pass live habit
+                            ),
+                      ),
+                    );
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.white),
+                  onPressed: () {
+                    // Show confirmation and delete habit
+                    _showDeleteConfirmation(
+                      context,
+                      ref,
+                      liveHabit.id, // Use live habit id
+                    );
+                  },
+                ),
+              ],
+              bottom: const TabBar(
+                tabs: [Tab(text: 'CALENDAR'), Tab(text: 'DETAILS')],
+                labelColor: Colors.white,
+                indicatorColor: Colors.white,
+                unselectedLabelColor: Colors.white70,
+              ),
+            ),
+            body: TabBarView(
+              children: [
+                _buildCalendarTab(liveHabit), // Pass live habit
+                _buildDetailsTab(liveHabit), // Pass live habit
+              ],
+            ),
           ),
-        ),
-        body: TabBarView(
-          children: [
-            _buildCalendarTab(liveHabit), // Pass live habit
-            _buildDetailsTab(liveHabit), // Pass live habit
-          ],
-        ),
-      ),
+        );
+      },
     );
   }
 

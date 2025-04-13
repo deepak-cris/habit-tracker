@@ -28,6 +28,8 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
     7,
     true,
   ); // Default to all days selected for Fixed
+  // Updated state to hold dynamic map for note
+  List<Map<String, dynamic>> _reminderTimes = []; // State for reminder times
 
   bool get _isEditing => widget.habit != null;
 
@@ -39,13 +41,12 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
     super.initState();
     _nameController = TextEditingController(text: widget.habit?.name ?? '');
     _descriptionController = TextEditingController(
-      text: '',
-    ); // TODO: Add description to Habit model
+      text: widget.habit?.description ?? '', // Load description if editing
+    );
     _targetStreakController = TextEditingController(
       text: widget.habit?.targetStreak.toString() ?? '21',
     );
     if (_isEditing && widget.habit != null) {
-      _descriptionController.text = widget.habit!.description ?? '';
       _reasonControllers =
           widget.habit!.reasons
               .map((r) => TextEditingController(text: r))
@@ -58,6 +59,11 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
       _startDate = widget.habit!.startDate;
       _scheduleType = widget.habit!.scheduleType;
       _selectedDays = List.from(widget.habit!.selectedDays); // Copy list
+      // Initialize reminder times if editing (ensure type compatibility)
+      _reminderTimes = List<Map<String, dynamic>>.from(
+        widget.habit!.reminderTimes?.map((e) => Map<String, dynamic>.from(e)) ??
+            [],
+      );
     }
   }
 
@@ -79,14 +85,155 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
   }
 
   void _removeReasonField(int index) {
-    _reasonControllers[index].dispose();
+    // Dispose the controller before removing
+    if (index < _reasonControllers.length) {
+      _reasonControllers[index].dispose();
+    }
     setState(() {
-      _reasonControllers.removeAt(index);
+      if (index < _reasonControllers.length) {
+        _reasonControllers.removeAt(index);
+      }
       if (_reasonControllers.isEmpty) {
         _reasonControllers.add(TextEditingController());
       }
     });
   }
+
+  // --- Reminder Time Picker ---
+  Future<void> _selectReminderTime(BuildContext context) async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+    );
+    if (picked != null) {
+      // Show dialog to add optional note
+      final String? note = await _showAddReminderNoteDialog(context);
+
+      final newReminder = {
+        'hour': picked.hour,
+        'minute': picked.minute,
+        'note': note, // Add the note (can be null)
+      };
+
+      // Check for duplicate time only (allow same time with different notes if desired, though maybe not ideal UX)
+      // Let's prevent exact duplicates (time + note) for now.
+      bool exists = _reminderTimes.any(
+        (t) =>
+            t['hour'] == newReminder['hour'] &&
+            t['minute'] == newReminder['minute'] &&
+            t['note'] == newReminder['note'],
+      );
+
+      if (!exists) {
+        // Check if time already exists, regardless of note, to potentially warn user or replace?
+        // For simplicity now, just add if the exact combo (time+note) doesn't exist.
+        // A better UX might involve updating the note if the time exists.
+        setState(() {
+          _reminderTimes.add(newReminder);
+          // Sort reminders after adding
+          _reminderTimes.sort((a, b) {
+            // Handle potential nulls if needed, though 'hour'/'minute' should always exist
+            final timeA = TimeOfDay(
+              hour: a['hour'] as int,
+              minute: a['minute'] as int,
+            );
+            final timeB = TimeOfDay(
+              hour: b['hour'] as int,
+              minute: b['minute'] as int,
+            );
+            final now = DateTime.now();
+            final dtA = DateTime(
+              now.year,
+              now.month,
+              now.day,
+              timeA.hour,
+              timeA.minute,
+            );
+            final dtB = DateTime(
+              now.year,
+              now.month,
+              now.day,
+              timeB.hour,
+              timeB.minute,
+            );
+            return dtA.compareTo(dtB);
+          });
+        });
+        // Show confirmation message for adding reminder locally
+        if (mounted) {
+          // Check if mounted before showing Snackbar
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Reminder added. Press SAVE to confirm changes.'),
+              duration: Duration(seconds: 2), // Shorter duration
+            ),
+          );
+        }
+      } else {
+        // Optional: Show message if reminder already exists
+        if (mounted) {
+          // Check if mounted before showing Snackbar
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('This reminder time and note already exists.'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  // --- Dialog for Reminder Note ---
+  Future<String?> _showAddReminderNoteDialog(BuildContext context) async {
+    final noteController = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Add Reminder Note (Optional)'),
+          content: TextField(
+            controller: noteController,
+            decoration: const InputDecoration(hintText: 'Enter note...'),
+            autofocus: true,
+            maxLines: null, // Allow multiple lines
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context), // Return null (no note)
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                final note = noteController.text.trim();
+                Navigator.pop(context, note.isNotEmpty ? note : null);
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _removeReminderTime(int index) {
+    setState(() {
+      _reminderTimes.removeAt(index);
+    });
+    // Show confirmation message for removing reminder locally
+    if (mounted) {
+      // Check if mounted before showing Snackbar
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Reminder removed. Press SAVE to confirm changes.'),
+          duration: Duration(seconds: 2), // Shorter duration
+          backgroundColor: Colors.orange, // Indicate removal
+        ),
+      );
+    }
+  }
+  // --- End Reminder Time Picker ---
 
   Future<void> _selectStartDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
@@ -103,8 +250,30 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
   }
 
   void _saveHabit() {
-    if (_formKey.currentState!.validate()) {
-      final name = _nameController.text;
+    print("SAVE button pressed - _saveHabit called");
+    // Check if the form state exists and validate *if* it exists
+    final formState = _formKey.currentState;
+    bool isFormValid =
+        formState?.validate() ?? false; // Validate if formState is not null
+
+    // Also check if the required name field is filled, regardless of tab
+    final name = _nameController.text;
+    if (name.isEmpty) {
+      print("Validation failed: Name is empty.");
+      // Optionally show a message to the user to fill the name field
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a habit name on the HABIT tab.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return; // Stop saving if name is empty
+    }
+
+    // Proceed if the name is not empty AND (either the form is valid OR the form doesn't exist because we are on the Reminders tab)
+    if (formState == null || isFormValid) {
+      print("Proceeding with save...");
+      // final name = _nameController.text; // Already got name
       final description = _descriptionController.text;
       final reasons =
           _reasonControllers
@@ -112,11 +281,40 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
               .where((r) => r.isNotEmpty)
               .toList();
       final targetStreak = int.tryParse(_targetStreakController.text) ?? 21;
+      // Ensure the list being passed is of the correct type
+      final reminderTimes = List<Map<String, dynamic>>.from(_reminderTimes);
 
-      if (_isEditing) {
-        // TODO: Implement editHabit in Notifier
-        print('Editing habit (Not implemented yet)');
+      if (_isEditing && widget.habit != null) {
+        // Create updated habit object
+        final updatedHabit = Habit(
+          id: widget.habit!.id, // Keep original ID
+          name: name,
+          description: description.isNotEmpty ? description : null,
+          reasons: reasons,
+          startDate: _startDate,
+          scheduleType: _scheduleType,
+          selectedDays: _selectedDays,
+          targetStreak: targetStreak,
+          dateStatus: widget.habit!.dateStatus, // Keep original status map
+          notes: widget.habit!.notes, // Keep original notes map
+          isMastered: widget.habit!.isMastered, // Keep original mastered status
+          reminderTimes:
+              reminderTimes.isNotEmpty
+                  ? reminderTimes
+                  : null, // Pass updated reminders
+        );
+        ref.read(habitProvider.notifier).editHabit(updatedHabit);
+        // Show confirmation message for edit
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Habit "${updatedHabit.name}" updated.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
       } else {
+        // Adding a new habit
         ref
             .read(habitProvider.notifier)
             .addHabit(
@@ -127,12 +325,35 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
               scheduleType: _scheduleType,
               selectedDays: _selectedDays,
               targetStreak: targetStreak,
+              reminderTimes:
+                  reminderTimes.isNotEmpty
+                      ? reminderTimes
+                      : null, // Pass reminders
             );
-        print(
-          'Adding habit: $name, Desc: $description, Reasons: $reasons, Start: $_startDate, Target: $targetStreak, Schedule: $_scheduleType, Days: $_selectedDays',
-        );
+        // Show confirmation message for add
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Habit "$name" added.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
       }
-      Navigator.of(context).pop();
+      // Pop after showing snackbar, adding a slight delay for visibility
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          // Check if the widget is still in the tree
+          Navigator.of(context).pop();
+        }
+      });
+    } else {
+      // This else block now specifically means form validation failed (formState was not null, but validate returned false)
+      print("Form validation failed.");
+      // Optionally show a generic validation error message if specific field errors aren't visible
+      // ScaffoldMessenger.of(context).showSnackBar(
+      //   const SnackBar(content: Text('Please fix errors on the HABIT tab.'), backgroundColor: Colors.red),
+      // );
     }
   }
 
@@ -296,8 +517,8 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
                 ),
               ),
             ),
-            // --- REMINDERS Tab Content (Placeholder) ---
-            const Center(child: Text('Reminders settings (TODO)')),
+            // --- REMINDERS Tab Content ---
+            _buildRemindersTab(),
           ],
         ),
       ),
@@ -435,4 +656,77 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
       child: child,
     );
   }
+
+  // --- Build Method for Reminders Tab ---
+  Widget _buildRemindersTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16.0),
+      children: [
+        Text(
+          'Set Reminder Times',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 8),
+        if (_reminderTimes.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16.0),
+            child: Center(
+              child: Text(
+                'No reminders set.',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+          )
+        else
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _reminderTimes.length,
+            itemBuilder: (context, index) {
+              final timeMap = _reminderTimes[index];
+              final time = TimeOfDay(
+                hour: timeMap['hour'] as int, // Cast as int
+                minute: timeMap['minute'] as int, // Cast as int
+              );
+              final formattedTime = time.format(context); // Localized format
+              final note = timeMap['note'] as String?; // Get optional note
+
+              return Card(
+                margin: const EdgeInsets.symmetric(vertical: 4.0),
+                child: ListTile(
+                  leading: const Icon(Icons.alarm, color: Colors.teal),
+                  title: Text(formattedTime),
+                  subtitle:
+                      note != null && note.isNotEmpty
+                          ? Text(note)
+                          : null, // Display note if exists
+                  isThreeLine:
+                      note != null &&
+                      note.isNotEmpty, // Adjust height if note exists
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    tooltip: 'Remove Reminder',
+                    onPressed: () => _removeReminderTime(index),
+                  ),
+                ),
+              );
+            },
+          ),
+        const SizedBox(height: 16),
+        Center(
+          child: ElevatedButton.icon(
+            icon: const Icon(Icons.add_alarm),
+            label: const Text('Add Reminder'),
+            onPressed: () => _selectReminderTime(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.pinkAccent,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- End Build Method for Reminders Tab ---
 }

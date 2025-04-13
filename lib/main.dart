@@ -10,11 +10,15 @@ import 'models/claimed_reward.dart'; // Import ClaimedReward model
 import 'auth/auth_notifier.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
+import 'services/notification_service.dart'; // Import NotificationService
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized(); // Corrected typo
+  WidgetsFlutterBinding.ensureInitialized(); // Ensure bindings are initialized
   await Firebase.initializeApp();
   await Hive.initFlutter();
+
+  // Initialize Notification Service
+  await NotificationService().init();
 
   // Register adapters
   Hive.registerAdapter(HabitAdapter());
@@ -24,9 +28,11 @@ void main() async {
     ClaimedRewardAdapter(),
   ); // Register ClaimedReward adapter
 
-  // Open required boxes
-  await Hive.openBox('habits');
-  await Hive.openBox('userProfile'); // For points and achievements
+  // Open required boxes with correct types
+  await Hive.openBox<Habit>('habits'); // Specify Habit type
+  await Hive.openBox(
+    'userProfile',
+  ); // For points and achievements (assuming dynamic or simple types)
   await Hive.openBox<Reward>('rewards'); // Box for custom rewards
   await Hive.openBox<ClaimedReward>(
     'claimedRewards',

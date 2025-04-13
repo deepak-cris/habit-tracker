@@ -18,24 +18,84 @@ import 'add_edit_reward_screen.dart'; // Import the Add/Edit Reward screen
 import '../providers/claimed_reward_provider.dart'; // Import provider
 import '../utils/habit_utils.dart'; // Import habit utils for streak calculation
 import 'package:intl/intl.dart'; // Import intl for date formatting
+import 'package:hive_flutter/hive_flutter.dart'; // Import Hive
+import '../services/notification_service.dart'; // Import NotificationService
 
 // --- Habit State Management ---
-final habitProvider = StateNotifierProvider<HabitNotifier, List<Habit>>((ref) {
-  // Pass ref to notifier so it can read other providers
-  return HabitNotifier(ref);
-});
-
-class HabitNotifier extends StateNotifier<List<Habit>> {
-  final Ref _ref; // Keep ref to read other providers
-
-  HabitNotifier(this._ref) : super(_initialHabits) {
-    // Ensure initial habits have normalized dates in maps
-    _initialHabits.forEach((habit) {
-      // This part is tricky as the state is final.
-      // Ideally, normalization happens when adding/updating, not here.
-      // For dummy data, we'll pre-normalize the keys.
+// Use AsyncValue to handle loading/error states
+final habitProvider =
+    StateNotifierProvider<HabitNotifier, AsyncValue<List<Habit>>>((ref) {
+      // Pass ref to notifier so it can read other providers
+      return HabitNotifier(ref);
     });
+
+class HabitNotifier extends StateNotifier<AsyncValue<List<Habit>>> {
+  final Ref _ref; // Keep ref to read other providers
+  static const String _habitBoxName = 'habits'; // Define box name
+
+  HabitNotifier(this._ref) : super(const AsyncValue.loading()) {
+    // Start with loading state
+    _loadHabits(); // Load habits from Hive on initialization
   }
+
+  // --- Load Habits from Hive ---
+  Future<void> _loadHabits() async {
+    // Ensure initial state is loading before trying to load
+    if (!state.isLoading) {
+      state = const AsyncValue.loading();
+    }
+    try {
+      final box = await Hive.openBox<Habit>(_habitBoxName);
+      // Use box.values.toList() which returns Iterable<Habit>
+      final loadedHabits = box.values.toList();
+      List<Habit> habitsToSet = []; // List to hold the final habits
+
+      if (loadedHabits.isEmpty) {
+        print("No habits found in Hive. Adding default dummy habit.");
+        habitsToSet = _initialHabits; // Assign dummy data
+        // Persist the dummy data immediately
+        for (final habit in habitsToSet) {
+          await _persistHabit(habit); // Persist dummy habit
+          NotificationService().scheduleHabitReminders(
+            habit,
+          ); // Schedule its notifications
+        }
+      } else {
+        habitsToSet = loadedHabits;
+        print("Loaded ${habitsToSet.length} habits from Hive.");
+        // Reschedule notifications for all loaded habits
+        for (final habit in habitsToSet) {
+          NotificationService().scheduleHabitReminders(habit);
+        }
+      }
+      // Set state to data only after all operations are complete
+      state = AsyncValue.data(habitsToSet);
+    } catch (e, stackTrace) {
+      print("Error loading habits from Hive: $e. Adding default dummy habit.");
+      // Set state to error, but still provide the dummy data as a fallback
+      // This allows the app to function even if Hive fails initially
+      final fallbackHabits = _initialHabits;
+      // Attempt to persist fallback habits even on error
+      try {
+        for (final habit in fallbackHabits) {
+          await _persistHabit(habit);
+          NotificationService().scheduleHabitReminders(habit);
+        }
+      } catch (persistError) {
+        print("Error persisting fallback habits: $persistError");
+        // If persisting fallback fails, report the original error without data
+        state = AsyncValue.error(e, stackTrace);
+        return; // Exit early
+      }
+      // If persisting fallback succeeded, report error but provide fallback data
+      state = AsyncValue.error(e, stackTrace);
+      // Optionally, you could set state = AsyncValue.data(fallbackHabits)
+      // if you prefer to show the dummy data directly instead of an error screen.
+      // For now, let's stick to reporting the error.
+      // state = AsyncValue.data(fallbackHabits); // Alternative: show dummy data on error
+    }
+  }
+  // --- End Load Habits ---
 
   // Helper to normalize date keys - IMPORTANT: Use when adding/updating status/notes
   static DateTime _normalizeDate(DateTime date) {
@@ -43,6 +103,7 @@ class HabitNotifier extends StateNotifier<List<Habit>> {
   }
 
   // Single dummy habit with detailed info and status history
+  // NOTE: This dummy data won't be used if Hive loading is successful.
   static final List<Habit> _initialHabits = [
     () {
       final today = DateTime.now();
@@ -104,7 +165,8 @@ class HabitNotifier extends StateNotifier<List<Habit>> {
   ];
 
   // Update addHabit to accept all new fields and normalize dates
-  void addHabit({
+  Future<void> addHabit({
+    // Add async
     required String name,
     String? description,
     List<String>? reasons,
@@ -112,128 +174,190 @@ class HabitNotifier extends StateNotifier<List<Habit>> {
     String scheduleType = 'Fixed',
     required List<bool> selectedDays,
     int targetStreak = 21,
-  }) {
-    state = [
-      ...state,
-      Habit(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        name: name,
-        description: description,
-        reasons: reasons ?? [],
-        dateStatus: {},
-        notes: {},
-        startDate: _normalizeDate(startDate), // Normalize start date
-        scheduleType: scheduleType,
-        selectedDays: selectedDays,
-        targetStreak: targetStreak,
-        isMastered: false, // Ensure new habits start as not mastered
-      ),
-    ];
+    List<Map<String, dynamic>>? reminderTimes, // Correct parameter type
+  }) async {
+    // Add async
+    final newHabit = Habit(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      name: name,
+      description: description,
+      reasons: reasons ?? [],
+      dateStatus: {},
+      notes: {},
+      startDate: _normalizeDate(startDate), // Normalize start date
+      scheduleType: scheduleType,
+      selectedDays: selectedDays,
+      targetStreak: targetStreak,
+      isMastered: false, // Ensure new habits start as not mastered
+      reminderTimes: reminderTimes, // Assign reminderTimes
+    );
+    // Update state only if it's currently data
+    state.whenData((habits) async {
+      state = AsyncValue.data([...habits, newHabit]);
+      // Persist and schedule notifications
+      await _persistHabit(newHabit);
+      NotificationService().scheduleHabitReminders(newHabit);
+    });
+    // If state is loading or error, adding might be deferred or handled differently.
+    // For now, we assume adding happens when data is present.
   }
 
-  void deleteHabit(String habitId) {
-    state = state.where((habit) => habit.id != habitId).toList();
-    // TODO: Also delete from Hive persistence later
+  Future<void> editHabit(Habit updatedHabit) async {
+    state.whenData((habits) async {
+      final updatedList =
+          habits.map((habit) {
+            return habit.id == updatedHabit.id ? updatedHabit : habit;
+          }).toList();
+      state = AsyncValue.data(updatedList);
+      // Persist and update notifications
+      await _persistHabit(updatedHabit);
+      NotificationService().scheduleHabitReminders(updatedHabit);
+    });
   }
+
+  Future<void> deleteHabit(String habitId) async {
+    state.whenData((habits) async {
+      // Cancel notifications before deleting state and persistence
+      await NotificationService().cancelHabitReminders(habitId);
+      final updatedList = habits.where((habit) => habit.id != habitId).toList();
+      state = AsyncValue.data(updatedList);
+      await _deleteHabitFromPersistence(habitId);
+    });
+  }
+
+  // --- Persistence Helper Methods ---
+  Future<void> _persistHabit(Habit habit) async {
+    try {
+      final box = await Hive.openBox<Habit>(_habitBoxName);
+      await box.put(habit.id, habit);
+      print("Persisted habit ${habit.id} to Hive.");
+    } catch (e) {
+      print("Error persisting habit ${habit.id} to Hive: $e");
+    }
+  }
+
+  Future<void> _deleteHabitFromPersistence(String habitId) async {
+    try {
+      final box = await Hive.openBox<Habit>(_habitBoxName);
+      await box.delete(habitId);
+      print("Deleted habit $habitId from Hive.");
+    } catch (e) {
+      print("Error deleting habit $habitId from Hive: $e");
+    }
+  }
+  // --- End Persistence Helper Methods ---
 
   // Update status for a specific date (using helper)
   void updateStatus(String habitId, DateTime date, HabitStatus status) {
-    final normalizedDate = _normalizeDate(date); // Use helper
-    Habit? originalHabit; // Store original habit to check status change
-    List<Habit> newState = []; // Build the new state list
+    state.whenData((habits) {
+      final normalizedDate = _normalizeDate(date); // Use helper
+      Habit? originalHabit; // Store original habit to check status change
+      List<Habit> newState = []; // Build the new state list
 
-    // First pass: Update the status and store the original habit
-    for (final habit in state) {
-      if (habit.id == habitId) {
-        originalHabit = habit; // Store the original state before modification
-        // Create a mutable copy of the map
-        final newStatusMap = Map<DateTime, HabitStatus>.from(habit.dateStatus);
-        // Update or remove the status for the normalized date
-        if (status == HabitStatus.none) {
-          newStatusMap.remove(normalizedDate); // Remove if setting back to none
+      // First pass: Update the status and store the original habit
+      for (final habit in habits) {
+        // Iterate over habits from AsyncData
+        if (habit.id == habitId) {
+          originalHabit = habit; // Store the original state before modification
+          // Create a mutable copy of the map
+          final newStatusMap = Map<DateTime, HabitStatus>.from(
+            habit.dateStatus,
+          );
+          // Update or remove the status for the normalized date
+          if (status == HabitStatus.none) {
+            newStatusMap.remove(
+              normalizedDate,
+            ); // Remove if setting back to none
+          } else {
+            newStatusMap[normalizedDate] = status;
+          }
+          // Add the updated habit (without isMastered change yet)
+          newState.add(
+            Habit(
+              id: habit.id,
+              name: habit.name,
+              description: habit.description,
+              reasons: habit.reasons,
+              dateStatus: newStatusMap, // Use updated status map
+              notes: habit.notes,
+              startDate: habit.startDate,
+              scheduleType: habit.scheduleType,
+              selectedDays: habit.selectedDays,
+              targetStreak: habit.targetStreak,
+              isMastered:
+                  habit.isMastered, // Keep original mastered status for now
+            ),
+          );
         } else {
-          newStatusMap[normalizedDate] = status;
+          newState.add(habit); // Add unchanged habits
         }
-        // Add the updated habit (without isMastered change yet)
-        newState.add(
-          Habit(
-            id: habit.id,
-            name: habit.name,
-            description: habit.description,
-            reasons: habit.reasons,
-            dateStatus: newStatusMap, // Use updated status map
-            notes: habit.notes,
-            startDate: habit.startDate,
-            scheduleType: habit.scheduleType,
-            selectedDays: habit.selectedDays,
-            targetStreak: habit.targetStreak,
-            isMastered:
-                habit.isMastered, // Keep original mastered status for now
-          ),
+      }
+
+      // --- Award Points & Check Achievements ---
+      if (originalHabit != null) {
+        final previousStatus = originalHabit!.getStatusForDate(normalizedDate);
+        // Award points only when changing *to* Done from something else
+        if (status == HabitStatus.done && previousStatus != HabitStatus.done) {
+          _ref.read(pointsProvider.notifier).addPoints(10); // Award 10 points
+        }
+        // TODO: Consider if points should be deducted on changing *from* Done?
+
+        // Check achievements after any status update
+        // Calculate overall streak for the *updated* habit first
+        final updatedHabitForCheck = newState.firstWhere(
+          (h) => h.id == habitId,
         );
-      } else {
-        newState.add(habit); // Add unchanged habits
-      }
-    }
-
-    // --- Award Points & Check Achievements ---
-    if (originalHabit != null) {
-      final previousStatus = originalHabit!.getStatusForDate(normalizedDate);
-      // Award points only when changing *to* Done from something else
-      if (status == HabitStatus.done && previousStatus != HabitStatus.done) {
-        _ref.read(pointsProvider.notifier).addPoints(10); // Award 10 points
-      }
-      // TODO: Consider if points should be deducted on changing *from* Done?
-
-      // Check achievements after any status update
-      // Calculate overall streak for the *updated* habit first
-      final updatedHabitForCheck = newState.firstWhere((h) => h.id == habitId);
-      int overallLongestStreakForCheck = _calculateOverallLongestStreak(
-        updatedHabitForCheck,
-      );
-      // Call the per-habit check method in AchievementNotifier
-      _ref
-          .read(unlockedAchievementsProvider.notifier)
-          .checkAndUnlockAchievementsForHabit(
-            updatedHabitForCheck,
-            overallLongestStreakForCheck,
-          );
-
-      // --- Check for Habit Mastered ---
-      // Find the updated habit in the new state list
-      final updatedHabitIndex = newState.indexWhere((h) => h.id == habitId);
-      if (updatedHabitIndex != -1) {
-        final updatedHabit = newState[updatedHabitIndex];
-        if (!updatedHabit.isMastered) {
-          // Only check if not already mastered
-          // Calculate overall longest streak for *this* habit
-          int overallLongestStreak = _calculateOverallLongestStreak(
-            updatedHabit,
-          );
-          if (overallLongestStreak >= 21) {
-            print("Habit ${updatedHabit.name} mastered!");
-            // Mark as mastered - create a new instance and replace in the list
-            newState[updatedHabitIndex] = Habit(
-              id: updatedHabit.id,
-              name: updatedHabit.name,
-              description: updatedHabit.description,
-              reasons: updatedHabit.reasons,
-              dateStatus: updatedHabit.dateStatus,
-              notes: updatedHabit.notes,
-              startDate: updatedHabit.startDate,
-              scheduleType: updatedHabit.scheduleType,
-              selectedDays: updatedHabit.selectedDays,
-              targetStreak: updatedHabit.targetStreak,
-              isMastered: true, // Set the flag
+        int overallLongestStreakForCheck = _calculateOverallLongestStreak(
+          updatedHabitForCheck,
+        );
+        // Call the per-habit check method in AchievementNotifier
+        _ref
+            .read(unlockedAchievementsProvider.notifier)
+            .checkAndUnlockAchievementsForHabit(
+              updatedHabitForCheck,
+              overallLongestStreakForCheck,
             );
-            // TODO: Persist this change too
+
+        // --- Check for Habit Mastered ---
+        // Find the updated habit in the new state list
+        final updatedHabitIndex = newState.indexWhere((h) => h.id == habitId);
+        if (updatedHabitIndex != -1) {
+          final updatedHabit = newState[updatedHabitIndex];
+          if (!updatedHabit.isMastered) {
+            // Only check if not already mastered
+            // Calculate overall longest streak for *this* habit
+            int overallLongestStreak = _calculateOverallLongestStreak(
+              updatedHabit,
+            );
+            if (overallLongestStreak >= 21) {
+              print("Habit ${updatedHabit.name} mastered!");
+              // Mark as mastered - create a new instance and replace in the list
+              newState[updatedHabitIndex] = Habit(
+                id: updatedHabit.id,
+                name: updatedHabit.name,
+                description: updatedHabit.description,
+                reasons: updatedHabit.reasons,
+                dateStatus: updatedHabit.dateStatus,
+                notes: updatedHabit.notes,
+                startDate: updatedHabit.startDate,
+                scheduleType: updatedHabit.scheduleType,
+                selectedDays: updatedHabit.selectedDays,
+                targetStreak: updatedHabit.targetStreak,
+                isMastered: true, // Set the flag
+              );
+              // TODO: Persist this change too
+            }
           }
         }
       }
-    }
 
-    state = newState; // Assign the final updated list to the state
-    // TODO: Persist changes to Hive later (consider saving points/achievements too)
+      state = AsyncValue.data(
+        newState,
+      ); // Assign the final updated list to the state
+      // Find the potentially updated habit to persist
+      final habitToPersist = newState.firstWhere((h) => h.id == habitId);
+      _persistHabit(habitToPersist); // Persist the updated habit
+    });
   }
 
   // Helper function to calculate the overall longest streak for a single habit
@@ -276,35 +400,44 @@ class HabitNotifier extends StateNotifier<List<Habit>> {
 
   // Add/Update note for a specific date (using helper)
   void updateNote(String habitId, DateTime date, String note) {
-    final normalizedDate = _normalizeDate(date); // Use helper
+    state.whenData((habits) {
+      final normalizedDate = _normalizeDate(date); // Use helper
+      Habit? habitToPersist; // Store the habit that needs persisting
 
-    state =
-        state.map((habit) {
-          if (habit.id == habitId) {
-            final newNotesMap = Map<DateTime, String>.from(habit.notes);
-            if (note.isEmpty) {
-              newNotesMap.remove(normalizedDate); // Remove if note is empty
-            } else {
-              newNotesMap[normalizedDate] = note;
+      final updatedList =
+          habits.map((habit) {
+            if (habit.id == habitId) {
+              final newNotesMap = Map<DateTime, String>.from(habit.notes);
+              if (note.isEmpty) {
+                newNotesMap.remove(normalizedDate); // Remove if note is empty
+              } else {
+                newNotesMap[normalizedDate] = note;
+              }
+              // Create the updated habit instance
+              final updatedHabit = Habit(
+                id: habit.id,
+                name: habit.name,
+                description: habit.description,
+                reasons: habit.reasons,
+                dateStatus: habit.dateStatus,
+                notes: newNotesMap,
+                startDate: habit.startDate,
+                scheduleType: habit.scheduleType,
+                selectedDays: habit.selectedDays,
+                targetStreak: habit.targetStreak,
+                isMastered: habit.isMastered, // Include isMastered
+              );
+              habitToPersist = updatedHabit; // Mark this one for persistence
+              return updatedHabit;
             }
-            // Return a new Habit object with the updated notes map and all other fields
-            return Habit(
-              id: habit.id,
-              name: habit.name,
-              description: habit.description,
-              reasons: habit.reasons,
-              dateStatus: habit.dateStatus,
-              notes: newNotesMap,
-              startDate: habit.startDate,
-              scheduleType: habit.scheduleType,
-              selectedDays: habit.selectedDays,
-              targetStreak: habit.targetStreak,
-              isMastered: habit.isMastered, // Include isMastered
-            );
-          }
-          return habit;
-        }).toList();
-    // TODO: Persist changes to Hive later
+            return habit;
+          }).toList();
+
+      state = AsyncValue.data(updatedList); // Update the state
+      if (habitToPersist != null) {
+        _persistHabit(habitToPersist!); // Persist the changed habit
+      }
+    });
   }
 }
 // --- End Habit State Management ---
@@ -438,40 +571,84 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   // Extracted build methods for tabs for clarity
   Widget _buildHabitsTab() {
-    final habits = ref.watch(
-      habitProvider,
-    ); // Watch habits specifically for this tab
-    return ListView.builder(
-      padding: const EdgeInsets.all(8.0),
-      itemCount: habits.length,
-      itemBuilder: (context, index) {
-        final habit = habits[index];
-        // HabitCard handles its own tap navigation internally now
-        return HabitCard(habit: habit);
+    // Watch the AsyncValue state
+    final habitsAsync = ref.watch(habitProvider);
+
+    // Use .when to handle loading, error, and data states
+    return habitsAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error:
+          (error, stackTrace) => Center(
+            child: Text(
+              'Error loading habits: $error\n$stackTrace', // Show error details
+              textAlign: TextAlign.center,
+            ),
+          ),
+      data: (habits) {
+        // If data is loaded and empty, show a message
+        if (habits.isEmpty) {
+          return const Center(
+            child: Text(
+              'No habits yet. Add one!',
+              style: TextStyle(fontSize: 16, color: Colors.grey),
+            ),
+          );
+        }
+        // Otherwise, build the list
+        return ListView.builder(
+          padding: const EdgeInsets.all(8.0),
+          itemCount: habits.length,
+          itemBuilder: (context, index) {
+            final habit = habits[index];
+            // HabitCard handles its own tap navigation internally now
+            return HabitCard(habit: habit);
+          },
+        );
       },
     );
   }
 
   Widget _buildGraphsTab() {
-    final habits = ref.watch(
-      habitProvider,
-    ); // Watch habits specifically for this tab
-    return ListView.builder(
-      padding: const EdgeInsets.only(
-        top: 8.0,
-        bottom: 80.0,
-      ), // Padding for FAB overlap
-      itemCount: habits.length,
-      itemBuilder: (context, index) {
-        final habit = habits[index];
-        return HabitGraphCard(
-          habit: habit,
-          onTap: () {
-            // Navigate to stats screen on tap
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => HabitStatsScreen(habit: habit),
-              ),
+    // Watch the AsyncValue state
+    final habitsAsync = ref.watch(habitProvider);
+
+    // Use .when to handle loading, error, and data states
+    return habitsAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error:
+          (error, stackTrace) => Center(
+            child: Text(
+              'Error loading habits: $error',
+              textAlign: TextAlign.center,
+            ),
+          ),
+      data: (habits) {
+        if (habits.isEmpty) {
+          return const Center(
+            child: Text(
+              'No habits to graph yet.',
+              style: TextStyle(fontSize: 16, color: Colors.grey),
+            ),
+          );
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.only(
+            top: 8.0,
+            bottom: 80.0,
+          ), // Padding for FAB overlap
+          itemCount: habits.length,
+          itemBuilder: (context, index) {
+            final habit = habits[index];
+            return HabitGraphCard(
+              habit: habit,
+              onTap: () {
+                // Navigate to stats screen on tap
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => HabitStatsScreen(habit: habit),
+                  ),
+                );
+              },
             );
           },
         );
@@ -488,47 +665,112 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final claimedRewards = ref.watch(
       claimedRewardProvider,
     ); // Watch claimed rewards
+    final habitsAsync = ref.watch(habitProvider); // Watch async habits
 
     // --- Prepare Data for Achievement List ---
-    final allHabits = ref.watch(habitProvider); // Need habits to get names
-    final List<Map<String, dynamic>> unlockedInstances = [];
+    // Handle habit loading state before processing achievements
+    final Widget achievementListWidget = habitsAsync.when(
+      loading:
+          () => const Center(
+            child: Padding(
+              padding: EdgeInsets.all(8.0),
+              child: Text("Loading habits for achievements..."),
+            ),
+          ),
+      error:
+          (error, _) => Center(
+            child: Padding(
+              padding: EdgeInsets.all(8.0),
+              child: Text("Error loading habits: $error"),
+            ),
+          ),
+      data: (allHabits) {
+        // Proceed with building achievement list only if habits are loaded
+        final List<Map<String, dynamic>> unlockedInstances = [];
+        unlockedAchievementIds.forEach((achievementId, habitIdList) {
+          final achievement = allAchievements.firstWhere(
+            (a) => a.id == achievementId,
+            orElse:
+                () => const Achievement(
+                  id: 'not_found',
+                  name: 'Unknown',
+                  description: '',
+                  iconCodePoint: 0xe335,
+                  criteria: {},
+                ),
+          );
 
-    unlockedAchievementIds.forEach((achievementId, habitIdList) {
-      // Find the achievement definition
-      final achievement = allAchievements.firstWhere(
-        (a) => a.id == achievementId,
-        orElse:
-            () => const Achievement(
-              id: 'not_found',
-              name: 'Unknown',
-              description: '',
-              iconCodePoint: 0xe335,
-              criteria: {},
-            ), // Placeholder if not found
-      );
-
-      for (final habitId in habitIdList) {
-        // Find the habit name
-        final habit = allHabits.firstWhere(
-          (h) => h.id == habitId,
-          orElse:
-              () => Habit(
-                id: habitId,
-                name: 'Deleted Habit',
-                dateStatus: {},
-                notes: {},
-                startDate: DateTime.now(),
-                selectedDays: [],
-              ), // Placeholder if habit deleted
-        );
-        unlockedInstances.add({
-          'achievement': achievement,
-          'habitName': habit.name,
+          for (final habitId in habitIdList) {
+            final habit = allHabits.firstWhere(
+              (h) => h.id == habitId,
+              orElse:
+                  () => Habit(
+                    id: habitId,
+                    name: 'Deleted Habit',
+                    dateStatus: {},
+                    notes: {},
+                    startDate: DateTime.now(),
+                    selectedDays: [],
+                  ),
+            );
+            unlockedInstances.add({
+              'achievement': achievement,
+              'habitName': habit.name,
+            });
+          }
         });
-      }
-    });
-    // Optional: Sort the instances, e.g., by achievement name then habit name
-    // unlockedInstances.sort((a, b) => ...);
+
+        if (unlockedInstances.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16.0),
+            child: Center(
+              child: Text(
+                'Keep going to unlock achievements!',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+          );
+        } else {
+          return ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: unlockedInstances.length,
+            itemBuilder: (context, index) {
+              final instance = unlockedInstances[index];
+              final Achievement achievement = instance['achievement'];
+              final String habitName = instance['habitName'];
+              final String description = achievement.description.replaceAll(
+                '{habitName}',
+                "'$habitName'",
+              );
+
+              return Card(
+                margin: const EdgeInsets.symmetric(vertical: 4.0),
+                elevation: 1,
+                child: ListTile(
+                  leading: Icon(
+                    IconData(
+                      achievement.iconCodePoint,
+                      fontFamily: 'MaterialIcons',
+                    ),
+                    size: 30,
+                    color: Colors.amber.shade700,
+                  ),
+                  title: Text(
+                    achievement.name,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text(
+                    description,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              );
+            },
+          );
+        }
+      },
+    );
 
     return ListView(
       padding: const EdgeInsets.all(16.0),
@@ -668,61 +910,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         // --- Achievements Section ---
         Text('Achievements', style: Theme.of(context).textTheme.titleLarge),
         const Divider(),
-        if (unlockedInstances.isEmpty) // Use the correct variable name here
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 16.0),
-            child: Center(
-              child: Text(
-                'Keep going to unlock achievements!',
-                style: TextStyle(color: Colors.grey),
-              ),
-            ),
-          )
-        else
-          // Build ListView from the flattened list of unlocked instances
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount:
-                unlockedInstances.length, // Use the correct variable name here
-            itemBuilder: (context, index) {
-              final instance =
-                  unlockedInstances[index]; // Use the correct variable name here
-              final Achievement achievement = instance['achievement'];
-              final String habitName = instance['habitName'];
-
-              // Replace placeholder in description
-              final String description = achievement.description.replaceAll(
-                '{habitName}',
-                "'$habitName'",
-              );
-
-              return Card(
-                // Wrap ListTile in a Card for similar look
-                margin: const EdgeInsets.symmetric(vertical: 4.0),
-                elevation: 1,
-                child: ListTile(
-                  leading: Icon(
-                    IconData(
-                      achievement.iconCodePoint,
-                      fontFamily: 'MaterialIcons',
-                    ),
-                    size: 30,
-                    color: Colors.amber.shade700,
-                  ),
-                  title: Text(
-                    achievement.name,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Text(
-                    description,
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  // isThreeLine: true, // Allow more space if descriptions are long
-                ),
-              );
-            },
-          ),
+        achievementListWidget, // Display the built achievement list or loading/error state
         const SizedBox(height: 24), // Add spacing before claimed rewards
         // --- Claimed Rewards History Section ---
         ExpansionTile(

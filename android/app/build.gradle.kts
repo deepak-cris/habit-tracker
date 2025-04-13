@@ -14,6 +14,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // Enable core library desugaring
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -25,8 +27,8 @@ android {
         applicationId = "com.example.habit_tracker"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        minSdk = 23 // Updated to meet firebase_auth requirement
+        targetSdk = 33 // Explicitly set targetSdk to 33
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -42,4 +44,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+// Add the dependencies block for desugaring
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }
