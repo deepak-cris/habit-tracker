@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart'; // Import intl package
+import 'package:intl/intl.dart';
 import '../models/habit.dart';
 import 'home_screen.dart'; // To access habitProvider
 
 class AddEditHabitScreen extends ConsumerStatefulWidget {
-  final Habit? habit; // Optional habit for editing
+  final Habit? habit;
 
   const AddEditHabitScreen({super.key, this.habit});
 
@@ -19,27 +19,16 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
   late TextEditingController _nameController;
   late TextEditingController _descriptionController;
   late TextEditingController _targetStreakController;
-  List<TextEditingController> _reasonControllers = [
-    TextEditingController(),
-  ]; // Start with one reason field
+  List<TextEditingController> _reasonControllers = [TextEditingController()];
   DateTime _startDate = DateTime.now();
-  String _scheduleType = 'Fixed'; // Default schedule type
+  String _scheduleType = 'Fixed'; // For the habit's own schedule, not reminders
   List<bool> _selectedDays = List.filled(
     7,
     true,
-  ); // Default to all days selected for Fixed (relevant for weekly reminders)
-  // Updated state to hold dynamic map for note
-  List<Map<String, dynamic>> _reminderTimes =
-      []; // State for daily/weekly reminder times
-
-  // New state variables for reminder scheduling
-  String _reminderScheduleType =
-      'weekly'; // Default to weekly ('none', 'daily', 'weekly', 'specific_date')
-  DateTime? _reminderSpecificDateTime; // For 'specific_date' type
+  ); // For the habit's own schedule
 
   bool get _isEditing => widget.habit != null;
 
-  // Helper for day names
   final List<String> _dayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
   @override
@@ -47,7 +36,7 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
     super.initState();
     _nameController = TextEditingController(text: widget.habit?.name ?? '');
     _descriptionController = TextEditingController(
-      text: widget.habit?.description ?? '', // Load description if editing
+      text: widget.habit?.description ?? '',
     );
     _targetStreakController = TextEditingController(
       text: widget.habit?.targetStreak.toString() ?? '21',
@@ -58,21 +47,11 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
               .map((r) => TextEditingController(text: r))
               .toList();
       if (_reasonControllers.isEmpty) {
-        _reasonControllers.add(
-          TextEditingController(),
-        ); // Ensure at least one if editing and reasons were empty
+        _reasonControllers.add(TextEditingController());
       }
       _startDate = widget.habit!.startDate;
       _scheduleType = widget.habit!.scheduleType;
-      _selectedDays = List.from(widget.habit!.selectedDays); // Copy list
-      // Initialize reminder times if editing (ensure type compatibility)
-      _reminderTimes = List<Map<String, dynamic>>.from(
-        widget.habit!.reminderTimes?.map((e) => Map<String, dynamic>.from(e)) ??
-            [],
-      );
-      // Initialize new reminder fields if editing
-      _reminderScheduleType = widget.habit!.reminderScheduleType;
-      _reminderSpecificDateTime = widget.habit!.reminderSpecificDateTime;
+      _selectedDays = List.from(widget.habit!.selectedDays);
     }
   }
 
@@ -94,7 +73,6 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
   }
 
   void _removeReasonField(int index) {
-    // Dispose the controller before removing
     if (index < _reasonControllers.length) {
       _reasonControllers[index].dispose();
     }
@@ -107,193 +85,6 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
       }
     });
   }
-
-  // --- Reminder Time Picker ---
-  Future<void> _selectReminderTime(BuildContext context) async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.now(),
-    );
-    if (picked != null) {
-      // Show dialog to add optional note
-      final String? note = await _showAddReminderNoteDialog(context);
-
-      final newReminder = {
-        'hour': picked.hour,
-        'minute': picked.minute,
-        'note': note, // Add the note (can be null)
-      };
-
-      // Check for duplicate time only (allow same time with different notes if desired, though maybe not ideal UX)
-      // Let's prevent exact duplicates (time + note) for now.
-      bool exists = _reminderTimes.any(
-        (t) =>
-            t['hour'] == newReminder['hour'] &&
-            t['minute'] == newReminder['minute'] &&
-            t['note'] == newReminder['note'],
-      );
-
-      if (!exists) {
-        // Check if time already exists, regardless of note, to potentially warn user or replace?
-        // For simplicity now, just add if the exact combo (time+note) doesn't exist.
-        // A better UX might involve updating the note if the time exists.
-        setState(() {
-          _reminderTimes.add(newReminder);
-          // Sort reminders after adding
-          _reminderTimes.sort((a, b) {
-            // Handle potential nulls if needed, though 'hour'/'minute' should always exist
-            final timeA = TimeOfDay(
-              hour: a['hour'] as int,
-              minute: a['minute'] as int,
-            );
-            final timeB = TimeOfDay(
-              hour: b['hour'] as int,
-              minute: b['minute'] as int,
-            );
-            final now = DateTime.now();
-            final dtA = DateTime(
-              now.year,
-              now.month,
-              now.day,
-              timeA.hour,
-              timeA.minute,
-            );
-            final dtB = DateTime(
-              now.year,
-              now.month,
-              now.day,
-              timeB.hour,
-              timeB.minute,
-            );
-            return dtA.compareTo(dtB);
-          });
-        });
-        // Show confirmation message for adding reminder locally
-        if (mounted) {
-          // Check if mounted before showing Snackbar
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Reminder added. Press SAVE to confirm changes.'),
-              duration: Duration(seconds: 2), // Shorter duration
-            ),
-          );
-        }
-      } else {
-        // Optional: Show message if reminder already exists
-        if (mounted) {
-          // Check if mounted before showing Snackbar
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('This reminder time and note already exists.'),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  // --- Dialog for Reminder Note ---
-  Future<String?> _showAddReminderNoteDialog(BuildContext context) async {
-    final noteController = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Add Reminder Note (Optional)'),
-          content: TextField(
-            controller: noteController,
-            decoration: const InputDecoration(hintText: 'Enter note...'),
-            autofocus: true,
-            maxLines: null, // Allow multiple lines
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context), // Return null (no note)
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                final note = noteController.text.trim();
-                Navigator.pop(context, note.isNotEmpty ? note : null);
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _removeReminderTime(int index) {
-    setState(() {
-      _reminderTimes.removeAt(index);
-    });
-    // Show confirmation message for removing reminder locally
-    if (mounted) {
-      // Check if mounted before showing Snackbar
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Reminder removed. Press SAVE to confirm changes.'),
-          duration: Duration(seconds: 2), // Shorter duration
-          backgroundColor: Colors.orange, // Indicate removal
-        ),
-      );
-    }
-  }
-  // --- End Reminder Time Picker ---
-
-  // --- Specific Date/Time Picker ---
-  Future<void> _selectSpecificDateTime(BuildContext context) async {
-    final DateTime initialDate = _reminderSpecificDateTime ?? DateTime.now();
-    final TimeOfDay initialTime =
-        _reminderSpecificDateTime != null
-            ? TimeOfDay.fromDateTime(_reminderSpecificDateTime!)
-            : TimeOfDay.now();
-
-    // Pick Date
-    final DateTime? pickedDate = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: DateTime.now(), // Allow scheduling only from today onwards
-      lastDate: DateTime(2101),
-    );
-
-    if (pickedDate == null) return; // User cancelled date picker
-
-    // Pick Time (only if date was picked)
-    if (!context.mounted) return; // Check context validity after await
-    final TimeOfDay? pickedTime = await showTimePicker(
-      context: context,
-      initialTime: initialTime,
-    );
-
-    if (pickedTime == null) return; // User cancelled time picker
-
-    // Combine date and time
-    setState(() {
-      _reminderSpecificDateTime = DateTime(
-        pickedDate.year,
-        pickedDate.month,
-        pickedDate.day,
-        pickedTime.hour,
-        pickedTime.minute,
-      );
-    });
-    // Show confirmation message locally
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Specific reminder date/time set. Press SAVE to confirm.',
-          ),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
-  }
-  // --- End Specific Date/Time Picker ---
 
   Future<void> _selectStartDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
@@ -310,30 +101,21 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
   }
 
   void _saveHabit() {
-    print("SAVE button pressed - _saveHabit called");
-    // Check if the form state exists and validate *if* it exists
     final formState = _formKey.currentState;
-    bool isFormValid =
-        formState?.validate() ?? false; // Validate if formState is not null
-
-    // Also check if the required name field is filled, regardless of tab
+    bool isFormValid = formState?.validate() ?? false;
     final name = _nameController.text;
+
     if (name.isEmpty) {
-      print("Validation failed: Name is empty.");
-      // Optionally show a message to the user to fill the name field
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please enter a habit name on the HABIT tab.'),
+          content: Text('Please enter a habit name.'),
           backgroundColor: Colors.red,
         ),
       );
-      return; // Stop saving if name is empty
+      return;
     }
 
-    // Proceed if the name is not empty AND (either the form is valid OR the form doesn't exist because we are on the Reminders tab)
-    if (formState == null || isFormValid) {
-      print("Proceeding with save...");
-      // final name = _nameController.text; // Already got name
+    if (isFormValid) {
       final description = _descriptionController.text;
       final reasons =
           _reasonControllers
@@ -342,57 +124,27 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
               .toList();
       final targetStreak = int.tryParse(_targetStreakController.text) ?? 21;
 
-      // Prepare reminder data based on selected type
-      List<Map<String, dynamic>>? finalReminderTimes;
-      List<bool> finalSelectedDays = List.filled(
-        7,
-        false,
-      ); // Default to none for non-weekly
-      DateTime? finalSpecificDateTime;
-
-      switch (_reminderScheduleType) {
-        case 'daily':
-          finalReminderTimes = List<Map<String, dynamic>>.from(_reminderTimes);
-          break;
-        case 'weekly':
-          finalReminderTimes = List<Map<String, dynamic>>.from(_reminderTimes);
-          finalSelectedDays = _selectedDays; // Use the selected days
-          break;
-        case 'specific_date':
-          finalSpecificDateTime = _reminderSpecificDateTime;
-          break;
-        case 'none':
-        default:
-          // No reminder data needed
-          break;
-      }
-
       if (_isEditing && widget.habit != null) {
-        // Create updated habit object
+        // Keep existing reminder data from original habit when editing core details
         final updatedHabit = Habit(
-          id: widget.habit!.id, // Keep original ID
+          id: widget.habit!.id,
           name: name,
           description: description.isNotEmpty ? description : null,
           reasons: reasons,
           startDate: _startDate,
-          scheduleType:
-              _scheduleType, // This is the habit schedule, not reminder schedule
+          scheduleType: _scheduleType,
           selectedDays:
-              widget.habit!.selectedDays, // Keep original habit schedule days
+              _selectedDays, // Use state _selectedDays for habit schedule
           targetStreak: targetStreak,
-          dateStatus: widget.habit!.dateStatus, // Keep original status map
-          notes: widget.habit!.notes, // Keep original notes map
-          isMastered: widget.habit!.isMastered, // Keep original mastered status
-          // Pass updated reminder fields
-          reminderScheduleType: _reminderScheduleType,
-          reminderTimes: finalReminderTimes,
-          reminderSpecificDateTime: finalSpecificDateTime,
-          // We need to decide if habit's selectedDays should also be updated based on weekly reminder days
-          // For now, let's keep them separate. Habit schedule vs Reminder schedule.
+          dateStatus: widget.habit!.dateStatus,
+          notes: widget.habit!.notes,
+          isMastered: widget.habit!.isMastered,
+          // Keep original reminder fields
+          reminderScheduleType: widget.habit!.reminderScheduleType,
+          reminderTimes: widget.habit!.reminderTimes,
+          reminderSpecificDateTime: widget.habit!.reminderSpecificDateTime,
         );
-        // TODO: Update editHabit in notifier to accept new fields
         ref.read(habitProvider.notifier).editHabit(updatedHabit);
-        // Show confirmation message for edit
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -402,7 +154,7 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
           );
         }
       } else {
-        // Adding a new habit
+        // Adding new habit - reminder fields will use model defaults
         ref
             .read(habitProvider.notifier)
             .addHabit(
@@ -410,15 +162,11 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
               description: description.isNotEmpty ? description : null,
               reasons: reasons,
               startDate: _startDate,
-              scheduleType: _scheduleType, // Habit schedule
-              selectedDays: _selectedDays, // Habit schedule days
+              scheduleType: _scheduleType,
+              selectedDays: _selectedDays, // Use state _selectedDays
               targetStreak: targetStreak,
-              // Pass reminder fields
-              reminderScheduleType: _reminderScheduleType,
-              reminderTimes: finalReminderTimes,
-              reminderSpecificDateTime: finalSpecificDateTime,
+              // No need to pass reminder fields, they'll get defaults from Habit model
             );
-        // Show confirmation message for add
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -428,189 +176,154 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
           );
         }
       }
-      // Pop after showing snackbar, adding a slight delay for visibility
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) {
-          // Check if the widget is still in the tree
           Navigator.of(context).pop();
         }
       });
     } else {
-      // This else block now specifically means form validation failed (formState was not null, but validate returned false)
       print("Form validation failed.");
-      // Optionally show a generic validation error message if specific field errors aren't visible
-      // ScaffoldMessenger.of(context).showSnackBar(
-      //   const SnackBar(content: Text('Please fix errors on the HABIT tab.'), backgroundColor: Colors.red),
-      // );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        backgroundColor: Colors.grey[100], // Background for the whole screen
-        appBar: AppBar(
-          backgroundColor: Colors.teal, // Teal AppBar
-          title: Text(
-            _isEditing ? 'Edit Habit' : 'Add New Habit',
-            style: const TextStyle(color: Colors.white),
-          ),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
+    return Scaffold(
+      backgroundColor: Colors.grey[100],
+      appBar: AppBar(
+        backgroundColor: Colors.teal,
+        title: Text(
+          _isEditing ? 'Edit Habit' : 'Add New Habit',
+          style: const TextStyle(color: Colors.white),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        actions: [
+          TextButton(
             onPressed: () => Navigator.of(context).pop(),
+            child: const Text('CANCEL', style: TextStyle(color: Colors.white)),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text(
-                'CANCEL',
-                style: TextStyle(color: Colors.white),
+          TextButton(
+            onPressed: _saveHabit,
+            child: const Text(
+              'SAVE',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
               ),
             ),
-            TextButton(
-              onPressed: _saveHabit,
-              child: const Text(
-                'SAVE',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            children: [
+              _buildTextFieldSection(
+                label: 'Give this habit a name',
+                controller: _nameController,
+                hint: 'Habit',
+                validator:
+                    (value) =>
+                        value == null || value.isEmpty
+                            ? 'Please enter a habit name'
+                            : null,
+              ),
+              const SizedBox(height: 16),
+              _buildTextFieldSection(
+                label: 'Give it a description (optional)',
+                controller: _descriptionController,
+                hint: 'Description',
+                maxLines: 2,
+              ),
+              const SizedBox(height: 16),
+              Text('Reasons', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              ..._buildReasonFields(),
+              Center(
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.add_circle_outline,
+                    color: Colors.pink,
+                  ),
+                  onPressed: _addReasonField,
                 ),
               ),
-            ),
-          ],
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'EDIT HABIT'),
-              Tab(text: 'REMINDERS'),
-            ], // Renamed first tab
-            labelColor: Colors.white,
-            indicatorColor: Colors.white,
-            unselectedLabelColor: Colors.white70,
-          ),
-        ),
-        body: TabBarView(
-          children: [
-            // --- HABIT Tab Content ---
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Form(
-                key: _formKey,
-                child: ListView(
+              const SizedBox(height: 16),
+              _buildSectionContainer(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _buildTextFieldSection(
-                      label: 'Give this habit a name',
-                      controller: _nameController,
-                      hint: 'Habit',
-                      validator:
-                          (value) =>
-                              value == null || value.isEmpty
-                                  ? 'Please enter a habit name'
-                                  : null,
-                    ),
-                    const SizedBox(height: 16),
-                    _buildTextFieldSection(
-                      label: 'Give it a description (optional)',
-                      controller: _descriptionController,
-                      hint: 'Description',
-                      maxLines: 2,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Reasons',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    ..._buildReasonFields(),
-                    Center(
-                      child: IconButton(
-                        icon: const Icon(
-                          Icons.add_circle_outline,
-                          color: Colors.pink,
-                        ),
-                        onPressed: _addReasonField,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildSectionContainer(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Start Date'),
-                          TextButton(
-                            onPressed: () => _selectStartDate(context),
-                            child: Text(
-                              DateFormat('dd-MM-yyyy').format(_startDate),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildSectionContainer(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Select a schedule',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          DropdownButtonFormField<String>(
-                            value: _scheduleType,
-                            items:
-                                ['Fixed', 'Flexible']
-                                    .map(
-                                      (label) => DropdownMenuItem(
-                                        value: label,
-                                        child: Text(label),
-                                      ),
-                                    )
-                                    .toList(),
-                            onChanged: (value) {
-                              setState(() {
-                                _scheduleType = value!;
-                              });
-                            },
-                            decoration: const InputDecoration(
-                              border: UnderlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(vertical: 4),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'When do you want to perform the habit ?',
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                          const SizedBox(height: 8),
-                          _buildDaySelector(),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildTextFieldSection(
-                      label: 'Target Streak',
-                      controller: _targetStreakController,
-                      hint: '21 days',
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      validator: (value) {
-                        if (value != null &&
-                            value.isNotEmpty &&
-                            (int.tryParse(value) == null ||
-                                int.parse(value) <= 0)) {
-                          return 'Please enter a valid positive number';
-                        }
-                        return null;
-                      },
+                    const Text('Start Date'),
+                    TextButton(
+                      onPressed: () => _selectStartDate(context),
+                      child: Text(DateFormat('dd-MM-yyyy').format(_startDate)),
                     ),
                   ],
                 ),
               ),
-            ),
-            // --- REMINDERS Tab Content ---
-            _buildRemindersTab(),
-          ],
+              const SizedBox(height: 16),
+              _buildSectionContainer(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Select a schedule',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    DropdownButtonFormField<String>(
+                      value: _scheduleType,
+                      items:
+                          ['Fixed', 'Flexible']
+                              .map(
+                                (label) => DropdownMenuItem(
+                                  value: label,
+                                  child: Text(label),
+                                ),
+                              )
+                              .toList(),
+                      onChanged: (value) {
+                        setState(() {
+                          _scheduleType = value!;
+                        });
+                      },
+                      decoration: const InputDecoration(
+                        border: UnderlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(vertical: 4),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'When do you want to perform the habit ?',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    _buildDaySelector(), // This now controls the habit's schedule days
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildTextFieldSection(
+                label: 'Target Streak',
+                controller: _targetStreakController,
+                hint: '21 days',
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                validator: (value) {
+                  if (value != null &&
+                      value.isNotEmpty &&
+                      (int.tryParse(value) == null || int.parse(value) <= 0)) {
+                    return 'Please enter a valid positive number';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -704,13 +417,11 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
               label: Text(_dayNames[index]),
               selected: _selectedDays[index],
               onSelected: (selected) {
-                // Corrected: Removed duplicate onSelected
                 setState(() {
                   _selectedDays[index] = selected;
                 });
               },
-              selectedColor:
-                  Colors.teal, // Corrected: Removed duplicate selectedColor
+              selectedColor: Colors.teal,
               labelStyle: TextStyle(
                 color: _selectedDays[index] ? Colors.white : Colors.black54,
                 fontSize: 12,
@@ -747,167 +458,4 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
       child: child,
     );
   }
-
-  // --- Build Method for Reminders Tab ---
-  Widget _buildRemindersTab() {
-    return ListView(
-      padding: const EdgeInsets.all(16.0),
-      children: [
-        Text(
-          'Reminder Schedule',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 8),
-
-        // Schedule Type Selector
-        _buildSectionContainer(
-          child: DropdownButtonFormField<String>(
-            value: _reminderScheduleType,
-            items: const [
-              DropdownMenuItem(value: 'none', child: Text('None')),
-              DropdownMenuItem(value: 'daily', child: Text('Daily')),
-              DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
-              DropdownMenuItem(
-                value: 'specific_date',
-                child: Text('Specific Date'),
-              ),
-            ],
-            onChanged: (value) {
-              if (value != null) {
-                setState(() {
-                  _reminderScheduleType = value;
-                  // Clear irrelevant data when type changes
-                  if (value != 'specific_date') {
-                    _reminderSpecificDateTime = null;
-                  }
-                  if (value != 'daily' && value != 'weekly') {
-                    // _reminderTimes = []; // Decide if we clear times when switching away
-                  }
-                  if (value != 'weekly') {
-                    // _selectedDays = List.filled(7, false); // Decide if we clear days
-                  }
-                });
-              }
-            },
-            decoration: const InputDecoration(
-              labelText: 'Schedule Type',
-              border: OutlineInputBorder(),
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        // --- Conditional UI based on Schedule Type ---
-
-        // Only show reminder details if type is not 'none'
-        if (_reminderScheduleType != 'none') ...[
-          // DAILY or WEEKLY: Show Time List and Add Button
-          if (_reminderScheduleType == 'daily' ||
-              _reminderScheduleType == 'weekly') ...[
-            Text(
-              'Reminder Times',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            if (_reminderTimes.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16.0),
-                child: Center(
-                  child: Text(
-                    'No reminder times set.',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                ),
-              )
-            else
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _reminderTimes.length,
-                itemBuilder: (context, index) {
-                  final timeMap = _reminderTimes[index];
-                  final time = TimeOfDay(
-                    hour: timeMap['hour'] as int,
-                    minute: timeMap['minute'] as int,
-                  );
-                  final formattedTime = time.format(context);
-                  final note = timeMap['note'] as String?;
-
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 4.0),
-                    child: ListTile(
-                      leading: const Icon(Icons.alarm, color: Colors.teal),
-                      title: Text(formattedTime),
-                      subtitle:
-                          note != null && note.isNotEmpty ? Text(note) : null,
-                      isThreeLine: note != null && note.isNotEmpty,
-                      trailing: IconButton(
-                        icon: const Icon(
-                          Icons.delete_outline,
-                          color: Colors.red,
-                        ),
-                        tooltip: 'Remove Reminder Time',
-                        onPressed: () => _removeReminderTime(index),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            const SizedBox(height: 16),
-            Center(
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.add_alarm),
-                label: const Text('Add Reminder Time'),
-                onPressed: () => _selectReminderTime(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.pinkAccent,
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ), // End Center
-            const SizedBox(height: 16),
-          ], // End Daily/Weekly specific UI
-          // WEEKLY only: Show Day Selector
-          if (_reminderScheduleType == 'weekly') ...[
-            Text(
-              'Reminder Days',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            _buildSectionContainer(
-              child: _buildDaySelector(),
-            ), // Reuse day selector
-            const SizedBox(height: 16),
-          ], // End Weekly specific UI
-          // SPECIFIC DATE only: Show Date/Time Picker Button
-          if (_reminderScheduleType == 'specific_date') ...[
-            _buildSectionContainer(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    _reminderSpecificDateTime == null
-                        ? 'Select Date & Time'
-                        : DateFormat(
-                          'yyyy-MM-dd HH:mm',
-                        ).format(_reminderSpecificDateTime!),
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  TextButton(
-                    onPressed: () => _selectSpecificDateTime(context),
-                    child: Text(
-                      _reminderSpecificDateTime == null ? 'SELECT' : 'CHANGE',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-          ], // End Specific Date specific UI
-        ], // End conditional UI for non-'none' types
-      ],
-    );
-  }
-
-  // --- End Build Method for Reminders Tab ---
 }

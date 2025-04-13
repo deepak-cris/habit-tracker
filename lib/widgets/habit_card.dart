@@ -5,7 +5,8 @@ import '../models/habit.dart';
 import '../models/habit_status.dart';
 import '../screens/home_screen.dart'; // For habitProvider
 import '../screens/habit_detail_screen.dart'; // Import the detail screen
-import '../screens/add_edit_habit_screen.dart'; // Import for Edit/Reminders navigation
+import '../screens/add_edit_habit_screen.dart'; // Import for Edit navigation
+import '../screens/habit_reminders_screen.dart'; // Import for Reminders navigation
 import '../screens/habit_stats_screen.dart'; // Import for Stats navigation
 
 // Convert to ConsumerStatefulWidget for local state (expansion) and provider access
@@ -185,6 +186,13 @@ class _HabitCardState extends ConsumerState<HabitCard> {
               ),
             );
             break;
+          case 'details': // Add case for details navigation
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => HabitDetailScreen(habit: habit),
+              ),
+            );
+            break;
           case 'stats':
             Navigator.of(context).push(
               MaterialPageRoute(
@@ -195,11 +203,10 @@ class _HabitCardState extends ConsumerState<HabitCard> {
           case 'reminders':
             Navigator.of(context).push(
               MaterialPageRoute(
-                // TODO: Pass initialTabIndex=1 once AddEditHabitScreen supports it
                 builder:
-                    (context) => AddEditHabitScreen(
-                      habit: habit /*, initialTabIndex: 1 */,
-                    ),
+                    (context) => HabitRemindersScreen(
+                      habit: habit,
+                    ), // Navigate to new screen
               ),
             );
             break;
@@ -210,6 +217,14 @@ class _HabitCardState extends ConsumerState<HabitCard> {
       },
       itemBuilder:
           (BuildContext context) => <PopupMenuEntry<String>>[
+            const PopupMenuItem<String>(
+              // Add View Details item first
+              value: 'details',
+              child: ListTile(
+                leading: Icon(Icons.visibility_outlined),
+                title: Text('View Details'),
+              ),
+            ),
             const PopupMenuItem<String>(
               value: 'edit',
               child: ListTile(
