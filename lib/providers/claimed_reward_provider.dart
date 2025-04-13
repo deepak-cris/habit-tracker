@@ -52,4 +52,22 @@ class ClaimedRewardNotifier extends StateNotifier<List<ClaimedReward>> {
     ]; // Add to the beginning for reverse chronological order
     _saveClaimedReward(newClaim);
   }
+
+  // Method to clear all claimed rewards
+  Future<void> clearHistory() async {
+    try {
+      final box = await Hive.openBox<ClaimedReward>(_boxName);
+      await box.clear(); // Clear all entries from the box
+      state = []; // Update the state to an empty list
+      print("Claimed reward history cleared.");
+    } catch (e) {
+      print("Error clearing claimed reward history: $e");
+      // Optionally, handle the error (e.g., show a message to the user)
+      // For now, we just print the error.
+      // We might want to reload the state from the box in case of error,
+      // but if clear() failed partially, the state might be inconsistent.
+      // Setting state to empty might be safer, assuming the user wants it cleared.
+      state = [];
+    }
+  }
 }

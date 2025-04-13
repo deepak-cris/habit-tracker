@@ -13,8 +13,11 @@ import '../providers/achievement_provider.dart';
 import '../providers/reward_provider.dart';
 import '../models/reward.dart';
 import '../models/achievement.dart';
+import '../models/claimed_reward.dart'; // Import ClaimedReward model
 import 'add_edit_reward_screen.dart'; // Import the Add/Edit Reward screen
+import '../providers/claimed_reward_provider.dart'; // Import provider
 import '../utils/habit_utils.dart'; // Import habit utils for streak calculation
+import 'package:intl/intl.dart'; // Import intl for date formatting
 
 // --- Habit State Management ---
 final habitProvider = StateNotifierProvider<HabitNotifier, List<Habit>>((ref) {
@@ -245,7 +248,7 @@ class HabitNotifier extends StateNotifier<List<Habit>> {
     // Iterate from start date up to the last recorded date or today, whichever is later
     DateTime checkDate = habit.startDate;
     DateTime lastDateToCheck = _normalizeDate(DateTime.now());
-    if (sortedDates.last.isAfter(lastDateToCheck)) {
+    if (sortedDates.isNotEmpty && sortedDates.last.isAfter(lastDateToCheck)) {
       lastDateToCheck = sortedDates.last;
     }
 
@@ -482,6 +485,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final rewards = ref.watch(rewardProvider);
     final unlockedAchievementIds = ref.watch(unlockedAchievementsProvider);
     final allAchievements = ref.watch(predefinedAchievementsProvider);
+    final claimedRewards = ref.watch(
+      claimedRewardProvider,
+    ); // Watch claimed rewards
 
     // --- Prepare Data for Achievement List ---
     final allHabits = ref.watch(habitProvider); // Need habits to get names
@@ -609,29 +615,50 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 subtitle: Text(
                   '${reward.pointCost} Points ${reward.description != null ? "- ${reward.description}" : ""}',
                 ),
-                trailing: ElevatedButton(
-                  onPressed:
-                      canAfford
-                          ? () {
-                            // Show confirmation dialog before claiming
-                            _showClaimConfirmation(context, ref, reward);
-                          }
-                          : null, // Disable if cannot afford
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                        canAfford ? Colors.amber.shade800 : Colors.grey,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
+                trailing: Row(
+                  // Use Row for multiple trailing widgets
+                  mainAxisSize:
+                      MainAxisSize.min, // Prevent Row from taking full width
+                  children: [
+                    ElevatedButton(
+                      onPressed:
+                          canAfford
+                              ? () {
+                                // Show confirmation dialog before claiming
+                                _showClaimConfirmation(context, ref, reward);
+                              }
+                              : null, // Disable if cannot afford
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            canAfford ? Colors.amber.shade800 : Colors.grey,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        textStyle: const TextStyle(fontSize: 12),
+                      ),
+                      child: const Text('Claim'),
                     ),
-                    textStyle: const TextStyle(fontSize: 12),
-                  ),
-                  child: const Text('Claim'),
+                    const SizedBox(width: 4), // Add spacing
+                    IconButton(
+                      // Add delete button
+                      icon: Icon(
+                        Icons.delete_outline,
+                        color: Colors.red.shade700,
+                      ),
+                      tooltip: 'Delete Reward',
+                      onPressed: () {
+                        // Show delete confirmation
+                        _showDeleteRewardConfirmation(context, ref, reward);
+                      },
+                    ),
+                  ],
                 ),
                 onLongPress: () {
-                  // TODO: Show edit/delete options
-                  print("Long press to edit/delete ${reward.name} (TODO)");
+                  // Keep long press for potential future edit action
+                  // TODO: Show edit options
+                  print("Long press to edit ${reward.name} (TODO)");
                 },
               );
             },
@@ -696,6 +723,86 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               );
             },
           ),
+        const SizedBox(height: 24), // Add spacing before claimed rewards
+        // --- Claimed Rewards History Section ---
+        ExpansionTile(
+          title: Row(
+            // Use Row for title and clear button
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Claimed Rewards',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              if (claimedRewards
+                  .isNotEmpty) // Show button only if list is not empty
+                IconButton(
+                  icon: Icon(
+                    Icons.delete_sweep_outlined,
+                    color: Colors.grey.shade600,
+                  ),
+                  tooltip: 'Clear History',
+                  onPressed: () {
+                    _showClearHistoryConfirmation(context, ref);
+                  },
+                ),
+            ],
+          ),
+          initiallyExpanded: false, // Start collapsed
+          children: <Widget>[
+            if (claimedRewards.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16.0),
+                child: Center(
+                  child: Text(
+                    'No rewards claimed yet.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+              )
+            else
+              ListView.builder(
+                shrinkWrap: true,
+                physics:
+                    const NeverScrollableScrollPhysics(), // Prevent nested scrolling issues
+                itemCount: claimedRewards.length,
+                itemBuilder: (context, index) {
+                  final claim = claimedRewards[index];
+                  final formattedDate = DateFormat.yMMMd().add_jm().format(
+                    claim.claimTimestamp,
+                  ); // Example format
+                  String subtitleText =
+                      '$formattedDate - ${claim.pointCost} Points';
+                  if (claim.claimReason != null &&
+                      claim.claimReason!.isNotEmpty) {
+                    subtitleText += '\nReason: ${claim.claimReason}';
+                  }
+
+                  return Card(
+                    // Wrap ListTile in a Card
+                    margin: const EdgeInsets.symmetric(
+                      vertical: 4.0,
+                    ), // Add margin like achievements
+                    elevation: 1, // Add elevation like achievements
+                    child: ListTile(
+                      leading: const Icon(
+                        Icons.history,
+                        color: Colors.blueGrey,
+                      ),
+                      title: Text(claim.rewardName),
+                      subtitle: Text(subtitleText),
+                      isThreeLine:
+                          claim.claimReason != null &&
+                          claim
+                              .claimReason!
+                              .isNotEmpty, // Adjust layout for reason
+                      // trailing: Text('${claim.pointCost} Pts', style: TextStyle(fontWeight: FontWeight.bold)), // Optional trailing points
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
       ],
     );
   }
@@ -712,7 +819,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       context: context,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
-          title: Text('Claim Reward?'),
+          title: const Text('Claim Reward?'),
           content: SingleChildScrollView(
             // Wrap in case of small screens
             child: ListBody(
@@ -753,6 +860,94 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     const SnackBar(
                       content: Text('Not enough points!'),
                       backgroundColor: Colors.redAccent,
+                    ),
+                  );
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // --- Confirmation Dialog for Deleting Reward ---
+  Future<void> _showDeleteRewardConfirmation(
+    BuildContext context,
+    WidgetRef ref,
+    Reward reward,
+  ) async {
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete Reward?'),
+          content: Text(
+            'Are you sure you want to delete the reward "${reward.name}"? This cannot be undone.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+              },
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Delete'),
+              onPressed: () {
+                ref.read(rewardProvider.notifier).deleteReward(reward.id);
+                Navigator.of(dialogContext).pop(); // Close dialog
+                // Show feedback (optional but good UX)
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Reward "${reward.name}" deleted.'),
+                      backgroundColor: Colors.green, // Use a success color
+                    ),
+                  );
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // --- Confirmation Dialog for Clearing History ---
+  Future<void> _showClearHistoryConfirmation(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Clear History?'),
+          content: const Text(
+            'Are you sure you want to clear all claimed reward history? This cannot be undone.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+              },
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Clear All'),
+              onPressed: () async {
+                // Make async for the provider call
+                await ref.read(claimedRewardProvider.notifier).clearHistory();
+                Navigator.of(dialogContext).pop(); // Close dialog
+                // Show feedback (optional but good UX)
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Claimed reward history cleared.'),
+                      backgroundColor: Colors.green, // Use a success color
                     ),
                   );
                 }
