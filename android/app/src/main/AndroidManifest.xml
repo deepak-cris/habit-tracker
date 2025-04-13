@@ -5,6 +5,8 @@
     <!-- Required for scheduling exact alarms (used by flutter_local_notifications) -->
     <!-- For Android 14+, user must grant this manually in app settings -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- Required to reschedule alarms on boot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
     <application
         android:label="habit_tracker"
@@ -37,6 +39,9 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- Receiver for handling scheduled notifications -->
+        <receiver android:name=".NotificationReceiver" android:exported="false" />
         
         <!-- Google Sign-In configuration -->
         <meta-data

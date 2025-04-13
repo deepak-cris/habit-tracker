@@ -28,16 +28,20 @@ class HabitAdapter extends TypeAdapter<Habit> {
       selectedDays: (fields[9] as List).cast<bool>(),
       targetStreak: fields[3] as int,
       isMastered: fields[10] as bool,
-      reminderTimes: (fields[11] as List?)
-          ?.map((dynamic e) => (e as Map).cast<String, dynamic>())
-          ?.toList(),
+      reminderTimes:
+          (fields[11] as List?)
+              ?.map((dynamic e) => (e as Map).cast<String, dynamic>())
+              ?.toList(),
+      // Provide default value 'weekly' if field 12 is null
+      reminderScheduleType: fields[12] as String? ?? 'weekly',
+      reminderSpecificDateTime: fields[13] as DateTime?,
     );
   }
 
   @override
   void write(BinaryWriter writer, Habit obj) {
     writer
-      ..writeByte(12)
+      ..writeByte(14)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -61,7 +65,11 @@ class HabitAdapter extends TypeAdapter<Habit> {
       ..writeByte(10)
       ..write(obj.isMastered)
       ..writeByte(11)
-      ..write(obj.reminderTimes);
+      ..write(obj.reminderTimes)
+      ..writeByte(12)
+      ..write(obj.reminderScheduleType)
+      ..writeByte(13)
+      ..write(obj.reminderSpecificDateTime);
   }
 
   @override

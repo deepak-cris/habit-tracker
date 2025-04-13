@@ -40,8 +40,6 @@ dependencies:
   flutter_riverpod: ^2.4.9
   fl_chart: ^0.68.0 # Added for graphing
   uuid: ^4.4.0 # Added for generating unique IDs
-  flutter_local_notifications: ^17.1.2 # Added for reminders
-  flutter_timezone: ^4.1.0 # Updated for compatibility
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

@@ -174,7 +174,10 @@ class HabitNotifier extends StateNotifier<AsyncValue<List<Habit>>> {
     String scheduleType = 'Fixed',
     required List<bool> selectedDays,
     int targetStreak = 21,
-    List<Map<String, dynamic>>? reminderTimes, // Correct parameter type
+    // Add new reminder parameters
+    String reminderScheduleType = 'weekly', // Default if not provided
+    List<Map<String, dynamic>>? reminderTimes,
+    DateTime? reminderSpecificDateTime,
   }) async {
     // Add async
     final newHabit = Habit(
@@ -189,7 +192,10 @@ class HabitNotifier extends StateNotifier<AsyncValue<List<Habit>>> {
       selectedDays: selectedDays,
       targetStreak: targetStreak,
       isMastered: false, // Ensure new habits start as not mastered
-      reminderTimes: reminderTimes, // Assign reminderTimes
+      // Assign new reminder fields
+      reminderScheduleType: reminderScheduleType,
+      reminderTimes: reminderTimes,
+      reminderSpecificDateTime: reminderSpecificDateTime,
     );
     // Update state only if it's currently data
     state.whenData((habits) async {

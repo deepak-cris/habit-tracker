@@ -27,9 +27,15 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
   List<bool> _selectedDays = List.filled(
     7,
     true,
-  ); // Default to all days selected for Fixed
+  ); // Default to all days selected for Fixed (relevant for weekly reminders)
   // Updated state to hold dynamic map for note
-  List<Map<String, dynamic>> _reminderTimes = []; // State for reminder times
+  List<Map<String, dynamic>> _reminderTimes =
+      []; // State for daily/weekly reminder times
+
+  // New state variables for reminder scheduling
+  String _reminderScheduleType =
+      'weekly'; // Default to weekly ('none', 'daily', 'weekly', 'specific_date')
+  DateTime? _reminderSpecificDateTime; // For 'specific_date' type
 
   bool get _isEditing => widget.habit != null;
 
@@ -64,6 +70,9 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
         widget.habit!.reminderTimes?.map((e) => Map<String, dynamic>.from(e)) ??
             [],
       );
+      // Initialize new reminder fields if editing
+      _reminderScheduleType = widget.habit!.reminderScheduleType;
+      _reminderSpecificDateTime = widget.habit!.reminderSpecificDateTime;
     }
   }
 
@@ -235,6 +244,57 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
   }
   // --- End Reminder Time Picker ---
 
+  // --- Specific Date/Time Picker ---
+  Future<void> _selectSpecificDateTime(BuildContext context) async {
+    final DateTime initialDate = _reminderSpecificDateTime ?? DateTime.now();
+    final TimeOfDay initialTime =
+        _reminderSpecificDateTime != null
+            ? TimeOfDay.fromDateTime(_reminderSpecificDateTime!)
+            : TimeOfDay.now();
+
+    // Pick Date
+    final DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime.now(), // Allow scheduling only from today onwards
+      lastDate: DateTime(2101),
+    );
+
+    if (pickedDate == null) return; // User cancelled date picker
+
+    // Pick Time (only if date was picked)
+    if (!context.mounted) return; // Check context validity after await
+    final TimeOfDay? pickedTime = await showTimePicker(
+      context: context,
+      initialTime: initialTime,
+    );
+
+    if (pickedTime == null) return; // User cancelled time picker
+
+    // Combine date and time
+    setState(() {
+      _reminderSpecificDateTime = DateTime(
+        pickedDate.year,
+        pickedDate.month,
+        pickedDate.day,
+        pickedTime.hour,
+        pickedTime.minute,
+      );
+    });
+    // Show confirmation message locally
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Specific reminder date/time set. Press SAVE to confirm.',
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+  // --- End Specific Date/Time Picker ---
+
   Future<void> _selectStartDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -281,8 +341,31 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
               .where((r) => r.isNotEmpty)
               .toList();
       final targetStreak = int.tryParse(_targetStreakController.text) ?? 21;
-      // Ensure the list being passed is of the correct type
-      final reminderTimes = List<Map<String, dynamic>>.from(_reminderTimes);
+
+      // Prepare reminder data based on selected type
+      List<Map<String, dynamic>>? finalReminderTimes;
+      List<bool> finalSelectedDays = List.filled(
+        7,
+        false,
+      ); // Default to none for non-weekly
+      DateTime? finalSpecificDateTime;
+
+      switch (_reminderScheduleType) {
+        case 'daily':
+          finalReminderTimes = List<Map<String, dynamic>>.from(_reminderTimes);
+          break;
+        case 'weekly':
+          finalReminderTimes = List<Map<String, dynamic>>.from(_reminderTimes);
+          finalSelectedDays = _selectedDays; // Use the selected days
+          break;
+        case 'specific_date':
+          finalSpecificDateTime = _reminderSpecificDateTime;
+          break;
+        case 'none':
+        default:
+          // No reminder data needed
+          break;
+      }
 
       if (_isEditing && widget.habit != null) {
         // Create updated habit object
@@ -292,17 +375,22 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
           description: description.isNotEmpty ? description : null,
           reasons: reasons,
           startDate: _startDate,
-          scheduleType: _scheduleType,
-          selectedDays: _selectedDays,
+          scheduleType:
+              _scheduleType, // This is the habit schedule, not reminder schedule
+          selectedDays:
+              widget.habit!.selectedDays, // Keep original habit schedule days
           targetStreak: targetStreak,
           dateStatus: widget.habit!.dateStatus, // Keep original status map
           notes: widget.habit!.notes, // Keep original notes map
           isMastered: widget.habit!.isMastered, // Keep original mastered status
-          reminderTimes:
-              reminderTimes.isNotEmpty
-                  ? reminderTimes
-                  : null, // Pass updated reminders
+          // Pass updated reminder fields
+          reminderScheduleType: _reminderScheduleType,
+          reminderTimes: finalReminderTimes,
+          reminderSpecificDateTime: finalSpecificDateTime,
+          // We need to decide if habit's selectedDays should also be updated based on weekly reminder days
+          // For now, let's keep them separate. Habit schedule vs Reminder schedule.
         );
+        // TODO: Update editHabit in notifier to accept new fields
         ref.read(habitProvider.notifier).editHabit(updatedHabit);
         // Show confirmation message for edit
         if (mounted) {
@@ -322,13 +410,13 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
               description: description.isNotEmpty ? description : null,
               reasons: reasons,
               startDate: _startDate,
-              scheduleType: _scheduleType,
-              selectedDays: _selectedDays,
+              scheduleType: _scheduleType, // Habit schedule
+              selectedDays: _selectedDays, // Habit schedule days
               targetStreak: targetStreak,
-              reminderTimes:
-                  reminderTimes.isNotEmpty
-                      ? reminderTimes
-                      : null, // Pass reminders
+              // Pass reminder fields
+              reminderScheduleType: _reminderScheduleType,
+              reminderTimes: finalReminderTimes,
+              reminderSpecificDateTime: finalSpecificDateTime,
             );
         // Show confirmation message for add
         if (mounted) {
@@ -663,67 +751,157 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
       padding: const EdgeInsets.all(16.0),
       children: [
         Text(
-          'Set Reminder Times',
+          'Reminder Schedule',
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 8),
-        if (_reminderTimes.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 16.0),
-            child: Center(
-              child: Text(
-                'No reminders set.',
-                style: TextStyle(color: Colors.grey),
-              ),
-            ),
-          )
-        else
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _reminderTimes.length,
-            itemBuilder: (context, index) {
-              final timeMap = _reminderTimes[index];
-              final time = TimeOfDay(
-                hour: timeMap['hour'] as int, // Cast as int
-                minute: timeMap['minute'] as int, // Cast as int
-              );
-              final formattedTime = time.format(context); // Localized format
-              final note = timeMap['note'] as String?; // Get optional note
 
-              return Card(
-                margin: const EdgeInsets.symmetric(vertical: 4.0),
-                child: ListTile(
-                  leading: const Icon(Icons.alarm, color: Colors.teal),
-                  title: Text(formattedTime),
-                  subtitle:
-                      note != null && note.isNotEmpty
-                          ? Text(note)
-                          : null, // Display note if exists
-                  isThreeLine:
-                      note != null &&
-                      note.isNotEmpty, // Adjust height if note exists
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.red),
-                    tooltip: 'Remove Reminder',
-                    onPressed: () => _removeReminderTime(index),
-                  ),
-                ),
-              );
+        // Schedule Type Selector
+        _buildSectionContainer(
+          child: DropdownButtonFormField<String>(
+            value: _reminderScheduleType,
+            items: const [
+              DropdownMenuItem(value: 'none', child: Text('None')),
+              DropdownMenuItem(value: 'daily', child: Text('Daily')),
+              DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
+              DropdownMenuItem(
+                value: 'specific_date',
+                child: Text('Specific Date'),
+              ),
+            ],
+            onChanged: (value) {
+              if (value != null) {
+                setState(() {
+                  _reminderScheduleType = value;
+                  // Clear irrelevant data when type changes
+                  if (value != 'specific_date') {
+                    _reminderSpecificDateTime = null;
+                  }
+                  if (value != 'daily' && value != 'weekly') {
+                    // _reminderTimes = []; // Decide if we clear times when switching away
+                  }
+                  if (value != 'weekly') {
+                    // _selectedDays = List.filled(7, false); // Decide if we clear days
+                  }
+                });
+              }
             },
-          ),
-        const SizedBox(height: 16),
-        Center(
-          child: ElevatedButton.icon(
-            icon: const Icon(Icons.add_alarm),
-            label: const Text('Add Reminder'),
-            onPressed: () => _selectReminderTime(context),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.pinkAccent,
-              foregroundColor: Colors.white,
+            decoration: const InputDecoration(
+              labelText: 'Schedule Type',
+              border: OutlineInputBorder(),
             ),
           ),
         ),
+        const SizedBox(height: 16),
+
+        // --- Conditional UI based on Schedule Type ---
+
+        // Only show reminder details if type is not 'none'
+        if (_reminderScheduleType != 'none') ...[
+          // DAILY or WEEKLY: Show Time List and Add Button
+          if (_reminderScheduleType == 'daily' ||
+              _reminderScheduleType == 'weekly') ...[
+            Text(
+              'Reminder Times',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            if (_reminderTimes.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16.0),
+                child: Center(
+                  child: Text(
+                    'No reminder times set.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+              )
+            else
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _reminderTimes.length,
+                itemBuilder: (context, index) {
+                  final timeMap = _reminderTimes[index];
+                  final time = TimeOfDay(
+                    hour: timeMap['hour'] as int,
+                    minute: timeMap['minute'] as int,
+                  );
+                  final formattedTime = time.format(context);
+                  final note = timeMap['note'] as String?;
+
+                  return Card(
+                    margin: const EdgeInsets.symmetric(vertical: 4.0),
+                    child: ListTile(
+                      leading: const Icon(Icons.alarm, color: Colors.teal),
+                      title: Text(formattedTime),
+                      subtitle:
+                          note != null && note.isNotEmpty ? Text(note) : null,
+                      isThreeLine: note != null && note.isNotEmpty,
+                      trailing: IconButton(
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: Colors.red,
+                        ),
+                        tooltip: 'Remove Reminder Time',
+                        onPressed: () => _removeReminderTime(index),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            const SizedBox(height: 16),
+            Center(
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.add_alarm),
+                label: const Text('Add Reminder Time'),
+                onPressed: () => _selectReminderTime(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.pinkAccent,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ), // End Center
+            const SizedBox(height: 16),
+          ], // End Daily/Weekly specific UI
+          // WEEKLY only: Show Day Selector
+          if (_reminderScheduleType == 'weekly') ...[
+            Text(
+              'Reminder Days',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            _buildSectionContainer(
+              child: _buildDaySelector(),
+            ), // Reuse day selector
+            const SizedBox(height: 16),
+          ], // End Weekly specific UI
+          // SPECIFIC DATE only: Show Date/Time Picker Button
+          if (_reminderScheduleType == 'specific_date') ...[
+            _buildSectionContainer(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _reminderSpecificDateTime == null
+                        ? 'Select Date & Time'
+                        : DateFormat(
+                          'yyyy-MM-dd HH:mm',
+                        ).format(_reminderSpecificDateTime!),
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  TextButton(
+                    onPressed: () => _selectSpecificDateTime(context),
+                    child: Text(
+                      _reminderSpecificDateTime == null ? 'SELECT' : 'CHANGE',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ], // End Specific Date specific UI
+        ], // End conditional UI for non-'none' types
       ],
     );
   }

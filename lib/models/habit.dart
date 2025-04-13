@@ -49,6 +49,12 @@ class Habit extends HiveObject {
   // Store as {'hour': H, 'minute': M, 'note': String?}
   final List<Map<String, dynamic>>? reminderTimes;
 
+  @HiveField(12) // New field for schedule type
+  final String reminderScheduleType; // 'none', 'daily', 'weekly', 'specific_date'
+
+  @HiveField(13) // New field for specific date/time
+  final DateTime? reminderSpecificDateTime; // Used only if type is 'specific_date'
+
   // TODO: Add fields for flexible schedule if needed (e.g., frequency, interval)
 
   Habit({
@@ -64,6 +70,8 @@ class Habit extends HiveObject {
     this.targetStreak = 21,
     this.isMastered = false, // Default to false
     this.reminderTimes, // Add reminderTimes to constructor
+    this.reminderScheduleType = 'weekly', // Default to weekly
+    this.reminderSpecificDateTime, // Default to null
   });
 
   // Helper to get status for a specific date (defaults to none)

@@ -1,14 +1,13 @@
-import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'; // For kIsWeb
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter_timezone/flutter_timezone.dart'; // Import flutter_timezone
-import 'package:timezone/data/latest_all.dart' as tz;
-import 'package:timezone/timezone.dart' as tz;
+import 'package:flutter/material.dart'; // Keep for TimeOfDay
+import 'package:flutter/services.dart'; // Import for MethodChannel
 import '../models/habit.dart'; // Assuming Habit model is here
 
 class NotificationService {
   static final NotificationService _notificationService =
       NotificationService._internal();
+
+  // Platform Channel setup
+  static const platform = MethodChannel('com.habit_tracker.app/notifications');
 
   factory NotificationService() {
     return _notificationService;
@@ -16,234 +15,264 @@ class NotificationService {
 
   NotificationService._internal();
 
-  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-      FlutterLocalNotificationsPlugin();
+  // No need for FlutterLocalNotificationsPlugin instance anymore
+  // final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+  //     FlutterLocalNotificationsPlugin();
 
   Future<void> init() async {
-    // Configure Timezone
-    await _configureLocalTimeZone();
-
-    // Android Initialization Settings
-    const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@mipmap/ic_launcher'); // Default icon
-
-    // iOS Initialization Settings
-    const DarwinInitializationSettings
-    initializationSettingsIOS = DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
-      // onDidReceiveLocalNotification: onDidReceiveLocalNotification, // Optional callback
-    );
-
-    // Linux Initialization Settings (Optional)
-    // final LinuxInitializationSettings initializationSettingsLinux =
-    //     LinuxInitializationSettings(defaultActionName: 'Open notification');
-
-    final InitializationSettings initializationSettings =
-        InitializationSettings(
-          android: initializationSettingsAndroid,
-          iOS: initializationSettingsIOS,
-          // linux: initializationSettingsLinux,
-        );
-
-    await flutterLocalNotificationsPlugin.initialize(
-      initializationSettings,
-      // onDidReceiveNotificationResponse: onDidReceiveNotificationResponse, // Optional callback for notification tap
-    );
-
-    // Request permissions explicitly for Android 13+
-    // This might need to be called from the UI based on user interaction
-    // await _requestAndroidPermissions();
-    print("Notification Service Initialized with local timezone set.");
-  }
-
-  // --- Timezone Configuration ---
-  Future<void> _configureLocalTimeZone() async {
-    tz.initializeTimeZones();
-    if (kIsWeb) {
-      // Timezone detection doesn't work reliably on web
-      print("Timezone configuration skipped for web.");
-      // Optionally set a default or handle differently
-      // tz.setLocalLocation(tz.getLocation('Etc/UTC'));
-      return;
-    }
+    // No need for plugin initialization or timezone config here
+    // Request permission via platform channel
     try {
-      final String timeZoneName = await FlutterTimezone.getLocalTimezone();
-      tz.setLocalLocation(tz.getLocation(timeZoneName));
-      print("Local timezone set to: $timeZoneName");
-    } catch (e) {
-      print("Error getting local timezone: $e. Using default UTC.");
-      // Fallback to UTC if detection fails
-      tz.setLocalLocation(tz.getLocation('Etc/UTC'));
+      final bool? granted = await platform.invokeMethod('requestPermission');
+      print("Android Notification Permission Granted via Channel: $granted");
+      if (granted == false) {
+        // Handle permission denial - maybe show a message in the UI later
+        print("Notification permission was denied or not yet granted.");
+      }
+    } on PlatformException catch (e) {
+      print("Failed to request notification permission: '${e.message}'.");
     }
+    print("Notification Service Initialized (using Platform Channel)");
   }
 
-  // --- Permission Requests (Example for Android 13+) ---
-  Future<void> _requestAndroidPermissions() async {
-    final bool? granted =
-        await flutterLocalNotificationsPlugin
-            .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin
-            >()
-            ?.requestNotificationsPermission(); // Request permission for Android 13+
-    print("Android Notification Permission Granted: $granted");
-    // You might want to handle the case where permission is denied
-  }
+  // Timezone configuration is no longer needed here as native code uses device time
+  // Future<void> _configureLocalTimeZone() async { ... }
 
-  // --- Scheduling Logic ---
+  // Permission request is now handled in init() via platform channel
+  // Future<void> _requestAndroidPermissions() async { ... }
+
+  // --- Scheduling Logic (using Platform Channel) ---
 
   Future<void> scheduleHabitReminders(Habit habit) async {
-    await cancelHabitReminders(habit.id); // Cancel old ones first
+    // Cancel reminders first (now uses platform channel)
+    await cancelHabitReminders(habit.id);
 
     if (habit.reminderTimes == null || habit.reminderTimes!.isEmpty) {
       print("No reminders to schedule for habit: ${habit.name}");
       return;
     }
 
-    print("Scheduling reminders for habit: ${habit.name}");
+    print(
+      "Scheduling reminders for habit via Platform Channel: ${habit.name} (Type: ${habit.reminderScheduleType})",
+    );
 
-    final now = tz.TZDateTime.now(tz.local); // Use TZDateTime
+    // --- Handle Specific Date Scheduling ---
+    if (habit.reminderScheduleType == 'specific_date') {
+      if (habit.reminderSpecificDateTime != null) {
+        final notificationId = _generateNotificationId(
+          habit.id,
+          0,
+        ); // Use index 0 for specific date
+        final timestampMillis =
+            habit.reminderSpecificDateTime!.millisecondsSinceEpoch;
+        String notificationBody =
+            'Reminder for: ${habit.name}'; // Simple body for specific date
 
-    for (int i = 0; i < habit.reminderTimes!.length; i++) {
-      final reminderMap = habit.reminderTimes![i];
-      final reminderTime = TimeOfDay(
-        hour: reminderMap['hour'] as int, // Cast to int
-        minute: reminderMap['minute'] as int, // Cast to int
-      );
-      final reminderNote = reminderMap['note'] as String?; // Get optional note
-
-      // Create a unique ID for each reminder instance of a habit
-      // Combining habit ID hashcode with reminder index should be sufficient
-      final notificationId = _generateNotificationId(habit.id, i);
-
-      // Schedule based on selected days
-      for (int dayIndex = 0; dayIndex < habit.selectedDays.length; dayIndex++) {
-        if (habit.selectedDays[dayIndex]) {
-          // Flutter day index: Monday=1, Sunday=7. DateTime day index: Monday=1, Sunday=7. Matches!
-          final scheduleDay = dayIndex + 1; // DateTime weekday format
-
-          tz.TZDateTime scheduledDate = _nextInstanceOfTime(
-            reminderTime.hour,
-            reminderTime.minute,
-            scheduleDay,
-            now,
-          );
-
+        try {
           print(
-            "Scheduling for Day: $scheduleDay at $scheduledDate (ID: $notificationId)",
+            "Invoking scheduleSpecificDateNotification: ID=$notificationId, Timestamp=$timestampMillis",
           );
+          final bool? scheduled = await platform
+              .invokeMethod<bool>('scheduleSpecificDateNotification', {
+                'id': notificationId,
+                'title': 'Habit Reminder',
+                'body': notificationBody,
+                'timestampMillis': timestampMillis,
+              });
 
-          try {
-            // Construct notification body
-            String notificationBody = 'Time for your habit: ${habit.name}';
-            if (reminderNote != null && reminderNote.isNotEmpty) {
-              notificationBody += '\n$reminderNote'; // Append note if exists
-            }
-
-            await flutterLocalNotificationsPlugin.zonedSchedule(
-              notificationId, // Unique ID for this specific reminder time of this habit
-              'Habit Reminder', // Title
-              notificationBody, // Use the constructed body with optional note
-              scheduledDate,
-              const NotificationDetails(
-                android: AndroidNotificationDetails(
-                  'habit_reminders_channel', // Channel ID
-                  'Habit Reminders', // Channel Name
-                  channelDescription:
-                      'Notifications to remind you of your habits',
-                  importance: Importance.max,
-                  priority: Priority.high,
-                  // sound: RawResourceAndroidNotificationSound('notification_sound'), // Optional custom sound
-                  // icon: '@mipmap/ic_launcher', // Optional specific icon
-                ),
-                iOS: DarwinNotificationDetails(
-                  // sound: 'default', // Optional custom sound
-                  presentAlert: true,
-                  presentBadge: true,
-                  presentSound: true,
-                ),
-              ),
-              androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-              uiLocalNotificationDateInterpretation:
-                  UILocalNotificationDateInterpretation.absoluteTime,
-              matchDateTimeComponents:
-                  DateTimeComponents
-                      .dayOfWeekAndTime, // Match day of week and time
-              payload: 'habit_reminder_${habit.id}', // Optional payload
-            );
+          if (scheduled == true) {
             print(
-              "Scheduled notification $notificationId for ${habit.name} on day $scheduleDay at $reminderTime",
+              "Successfully scheduled specific date notification $notificationId.",
+            );
+          } else {
+            print(
+              "WARNING: Failed to schedule specific date notification $notificationId. Time might be in the past or 'Alarms & reminders' permission is required.",
+            );
+          }
+        } on PlatformException catch (e) {
+          print(
+            "PlatformException while scheduling specific date notification $notificationId: '${e.message}'.",
+          );
+        } catch (e) {
+          print(
+            "Error scheduling specific date notification $notificationId: $e",
+          );
+        }
+      } else {
+        print(
+          "Skipping specific date scheduling for ${habit.name}: reminderSpecificDateTime is null.",
+        );
+      }
+      return; // Stop here for specific date type
+    }
+
+    // --- Handle Daily or Weekly Scheduling ---
+    if (habit.reminderScheduleType == 'daily' ||
+        habit.reminderScheduleType == 'weekly') {
+      if (habit.reminderTimes == null || habit.reminderTimes!.isEmpty) {
+        print(
+          "No reminder times set for daily/weekly schedule for habit: ${habit.name}",
+        );
+        return;
+      }
+
+      for (int i = 0; i < habit.reminderTimes!.length; i++) {
+        final reminderMap = habit.reminderTimes![i];
+        final reminderTime = TimeOfDay(
+          hour: reminderMap['hour'] as int,
+          minute: reminderMap['minute'] as int,
+        );
+        final reminderNote = reminderMap['note'] as String?;
+        final notificationId = _generateNotificationId(habit.id, i);
+        String notificationBody = 'Time for your habit: ${habit.name}';
+        if (reminderNote != null && reminderNote.isNotEmpty) {
+          notificationBody += '\n$reminderNote';
+        }
+
+        if (habit.reminderScheduleType == 'daily') {
+          // --- Schedule Daily ---
+          try {
+            print(
+              "Invoking scheduleDailyNotification: ID=$notificationId, Time=${reminderTime.hour}:${reminderTime.minute}",
+            );
+            final bool? scheduled = await platform
+                .invokeMethod<bool>('scheduleDailyNotification', {
+                  'id': notificationId,
+                  'title': 'Habit Reminder',
+                  'body': notificationBody,
+                  'hour': reminderTime.hour,
+                  'minute': reminderTime.minute,
+                });
+            if (scheduled == true) {
+              print(
+                "Successfully scheduled daily notification $notificationId.",
+              );
+            } else {
+              print(
+                "WARNING: Failed to schedule daily notification $notificationId. 'Alarms & reminders' permission might be required for exact timing.",
+              );
+            }
+          } on PlatformException catch (e) {
+            print(
+              "PlatformException while scheduling daily notification $notificationId: '${e.message}'.",
             );
           } catch (e) {
-            print("Error scheduling notification $notificationId: $e");
+            print("Error scheduling daily notification $notificationId: $e");
+          }
+        } else {
+          // --- Schedule Weekly ---
+          // Schedule based on selected days (habit.selectedDays should be valid for weekly type)
+          if (habit.selectedDays.length == 7) {
+            for (
+              int dayIndex = 0;
+              dayIndex < habit.selectedDays.length;
+              dayIndex++
+            ) {
+              if (habit.selectedDays[dayIndex]) {
+                final androidWeekday =
+                    (dayIndex % 7) + 1; // Convert 0-6 to 1-7 (Sun-Sat)
+                try {
+                  print(
+                    "Invoking scheduleWeeklyNotification: ID=$notificationId, Weekday=$androidWeekday, Time=${reminderTime.hour}:${reminderTime.minute}",
+                  );
+                  final bool? scheduled = await platform
+                      .invokeMethod<bool>('scheduleWeeklyNotification', {
+                        'id': notificationId,
+                        'title': 'Habit Reminder',
+                        'body': notificationBody,
+                        'hour': reminderTime.hour,
+                        'minute': reminderTime.minute,
+                        'weekday': androidWeekday,
+                      });
+
+                  if (scheduled == true) {
+                    print(
+                      "Successfully scheduled weekly notification $notificationId for day $androidWeekday.",
+                    );
+                  } else {
+                    print(
+                      "WARNING: Failed to schedule weekly notification $notificationId for day $androidWeekday. 'Alarms & reminders' permission might be required.",
+                    );
+                  }
+                } on PlatformException catch (e) {
+                  print(
+                    "PlatformException while scheduling weekly notification $notificationId for day $androidWeekday: '${e.message}'.",
+                  );
+                } catch (e) {
+                  print(
+                    "Error scheduling weekly notification $notificationId for day $androidWeekday: $e",
+                  );
+                }
+              }
+            }
+          } else {
+            print(
+              "Skipping weekly scheduling for ${habit.name}: selectedDays list is invalid.",
+            );
           }
         }
       }
+    } else if (habit.reminderScheduleType != 'none') {
+      print(
+        "Unknown reminderScheduleType '${habit.reminderScheduleType}' for habit: ${habit.name}",
+      );
     }
   }
 
-  // Helper to calculate the next instance of a specific day and time
-  tz.TZDateTime _nextInstanceOfTime(
-    int hour,
-    int minute,
-    int weekDay,
-    tz.TZDateTime now,
-  ) {
-    tz.TZDateTime scheduledDate = tz.TZDateTime(
-      tz.local,
-      now.year,
-      now.month,
-      now.day,
-      hour,
-      minute,
-    );
-    // If the scheduled time is in the past for today, move to the next occurrence
-    if (scheduledDate.isBefore(now)) {
-      scheduledDate = scheduledDate.add(const Duration(days: 1));
-    }
-    // Move to the correct weekday
-    while (scheduledDate.weekday != weekDay) {
-      scheduledDate = scheduledDate.add(const Duration(days: 1));
-    }
-    return scheduledDate;
-  }
+  // Helper _nextInstanceOfTime is no longer needed as calculation happens natively
 
-  // --- Cancellation Logic ---
+  // --- Cancellation Logic (using Platform Channel) ---
 
   Future<void> cancelHabitReminders(String habitId) async {
     print(
-      "Attempting to cancel reminders for habit ID hash: ${habitId.hashCode}",
+      "Attempting to cancel reminders for habit ID: $habitId via Platform Channel",
     );
-    // We need to cancel potentially multiple notifications per habit (one for each reminder time)
-    // Since we don't know how many reminders *were* set, we might need to iterate through possible IDs
-    // or fetch all pending notifications and filter by a pattern/payload if possible.
-    // A simpler approach for now: Cancel a range of potential IDs. Assuming max 10 reminders per habit.
-    // This is NOT robust. A better way is needed, perhaps storing notification IDs.
-    // For now, let's just cancel *all* notifications and reschedule. This is inefficient but safer.
-    // await flutterLocalNotificationsPlugin.cancelAll(); // Inefficient!
-
-    // Alternative: Fetch pending requests and cancel based on payload or ID pattern if possible
-    final List<PendingNotificationRequest> pendingRequests =
-        await flutterLocalNotificationsPlugin.pendingNotificationRequests();
+    // Iterate through potential reminder indices to generate IDs to cancel
+    // Assuming a maximum of 10 reminders per habit for cancellation purposes
     int cancelCount = 0;
-    for (PendingNotificationRequest request in pendingRequests) {
-      // Check if the ID matches the pattern for the given habitId
-      // This requires a consistent ID generation scheme. Let's refine _generateNotificationId
-      if (_isNotificationForHabit(request.id, habitId)) {
-        await flutterLocalNotificationsPlugin.cancel(request.id);
-        cancelCount++;
+    for (int i = 0; i < 10; i++) {
+      // Assume max 10 reminders
+      final notificationId = _generateNotificationId(habitId, i);
+      try {
+        await platform.invokeMethod('cancelNotification', {
+          'id': notificationId,
+        });
+        // We don't know for sure if this specific ID existed, but we attempt cancellation
+        // Native side handles non-existent alarms gracefully.
+        cancelCount++; // Increment count for attempted cancellations
+      } on PlatformException catch (e) {
+        // Log error but continue trying other potential IDs
+        print(
+          "Failed to cancel notification $notificationId: '${e.message}'. May not have existed.",
+        );
+      } catch (e) {
+        print("Error cancelling notification $notificationId: $e");
       }
     }
-    print("Cancelled $cancelCount notifications for habit: $habitId");
+    print(
+      "Attempted cancellation for $cancelCount potential notification IDs for habit: $habitId",
+    );
+    // Note: This doesn't confirm they were actually active, just that the cancel call was made.
   }
 
   Future<void> cancelAllNotifications() async {
-    await flutterLocalNotificationsPlugin.cancelAll();
-    print("Cancelled all notifications.");
+    // Option 1: Implement a native 'cancelAll' method (cleaner)
+    // try {
+    //   await platform.invokeMethod('cancelAllNotifications');
+    //   print("Invoked cancelAllNotifications via Platform Channel.");
+    // } on PlatformException catch (e) {
+    //   print("Failed to cancel all notifications: '${e.message}'.");
+    // }
+
+    // Option 2: If no native 'cancelAll', we can't reliably cancel all from Dart
+    // without knowing all possible habit IDs.
+    print(
+      "Warning: cancelAllNotifications called, but not implemented via platform channel yet. Native implementation needed.",
+    );
+    // For now, this function won't do anything effective across all habits.
   }
 
-  // --- Unique Notification ID Generation ---
+  // --- Unique Notification ID Generation (Keep this logic) ---
   // Generates a predictable ID based on habit ID and reminder index.
   // IMPORTANT: Assumes habit ID is stable. Uses String hashcode which might have collisions,
   // but is usually sufficient for this scale. A more robust unique ID might be needed for production.
@@ -257,41 +286,11 @@ class NotificationService {
     return combinedHash & 0x7FFFFFFF; // Ensure positive 32-bit int
   }
 
-  // Helper to check if a notification ID belongs to a specific habit
-  // This relies entirely on the generation scheme being reversible or checkable.
-  // Our current scheme isn't easily reversible. We might need to store IDs or use payload.
-  // Let's assume for now we can't reliably check this way without storing IDs.
-  // The cancelAll() approach or filtering by payload is more practical without extra storage.
-  bool _isNotificationForHabit(int notificationId, String habitId) {
-    // This is difficult with the current hash-based ID generation.
-    // We cannot reliably determine the original habitId and index from the combined hash.
-    // Returning false to indicate this method is not reliable with the current ID scheme.
-    // Consider using the payload for identification during cancellation.
-    print(
-      "Warning: _isNotificationForHabit check is not reliable with current ID scheme.",
-    );
-    return false;
-    // If we stored notification IDs associated with the habit, we could check against that list.
-  }
+  // Helper _isNotificationForHabit is no longer needed as cancellation is done by ID natively.
 
-  // --- Optional Callbacks (Example Placeholders) ---
-
-  // static void onDidReceiveLocalNotification(
-  //     int id, String? title, String? body, String? payload) async {
-  //   // display a dialog with the notification details, tap ok to go to another page
-  //   print('onDidReceiveLocalNotification payload: $payload');
-  // }
-
-  // static void onDidReceiveNotificationResponse(NotificationResponse notificationResponse) async {
-  //    final String? payload = notificationResponse.payload;
-  //    if (notificationResponse.payload != null) {
-  //      print('notification payload: $payload');
-  //    }
-  //    // TODO: Handle notification tap, e.g., navigate to habit details
-  //    // Example: Check payload and navigate
-  //    // if (payload != null && payload.startsWith('habit_reminder_')) {
-  //    //   String habitId = payload.substring('habit_reminder_'.length);
-  //    //   // Navigation logic here (might need a GlobalKey<NavigatorState> or similar)
-  //    // }
-  // }
+  // Callbacks like onDidReceiveLocalNotification / onDidReceiveNotificationResponse
+  // are specific to flutter_local_notifications and are removed.
+  // Handling notification taps would require setting up a PendingIntent on the native side
+  // that launches the Flutter app, potentially with data in the Intent to navigate.
+  // This is currently not implemented in the native code provided.
 }
