@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../models/habit.dart';
 import '../models/habit_status.dart';
-import '../screens/home_screen.dart';
+import '../screens/home_screen.dart'; // For habitProvider
 import '../screens/habit_detail_screen.dart'; // Import the detail screen
+import '../screens/add_edit_habit_screen.dart'; // Import for Edit/Reminders navigation
+import '../screens/habit_stats_screen.dart'; // Import for Stats navigation
 
 // Convert to ConsumerStatefulWidget for local state (expansion) and provider access
 class HabitCard extends ConsumerStatefulWidget {
@@ -82,12 +84,14 @@ class _HabitCardState extends ConsumerState<HabitCard> {
                 ),
             ],
           ),
-          IconButton(
-            icon: const Icon(Icons.more_vert),
-            onPressed: () {
-              /* TODO: Options menu */
-            },
-          ),
+          // IconButton( // REMOVE Original placeholder IconButton
+          //   icon: const Icon(Icons.more_vert),
+          //   onPressed: () {
+          //     /* TODO: Options menu */
+          //   },
+          // ),
+          // Keep ONLY the new PopupMenuButton for options
+          _buildOptionsMenu(context, ref, habit),
         ],
       ),
       const SizedBox(height: 10),
@@ -164,6 +168,126 @@ class _HabitCardState extends ConsumerState<HabitCard> {
       ),
     );
   }
+
+  // --- Options Menu ---
+  Widget _buildOptionsMenu(BuildContext context, WidgetRef ref, Habit habit) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert, color: Colors.grey),
+      onSelected: (String result) {
+        switch (result) {
+          case 'edit':
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder:
+                    (context) => AddEditHabitScreen(
+                      habit: habit,
+                    ), // Opens Edit tab by default
+              ),
+            );
+            break;
+          case 'stats':
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => HabitStatsScreen(habit: habit),
+              ),
+            );
+            break;
+          case 'reminders':
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                // TODO: Pass initialTabIndex=1 once AddEditHabitScreen supports it
+                builder:
+                    (context) => AddEditHabitScreen(
+                      habit: habit /*, initialTabIndex: 1 */,
+                    ),
+              ),
+            );
+            break;
+          case 'delete':
+            _showDeleteConfirmation(context, ref, habit);
+            break;
+        }
+      },
+      itemBuilder:
+          (BuildContext context) => <PopupMenuEntry<String>>[
+            const PopupMenuItem<String>(
+              value: 'edit',
+              child: ListTile(
+                leading: Icon(Icons.edit_outlined),
+                title: Text('Edit Habit'),
+              ),
+            ),
+            const PopupMenuItem<String>(
+              value: 'stats',
+              child: ListTile(
+                leading: Icon(Icons.bar_chart_outlined),
+                title: Text('View Statistics'),
+              ),
+            ),
+            const PopupMenuItem<String>(
+              value: 'reminders',
+              child: ListTile(
+                leading: Icon(Icons.notifications_active_outlined),
+                title: Text('Reminders'),
+              ),
+            ),
+            const PopupMenuDivider(),
+            const PopupMenuItem<String>(
+              value: 'delete',
+              child: ListTile(
+                leading: Icon(Icons.delete_outline, color: Colors.red),
+                title: Text('Delete', style: TextStyle(color: Colors.red)),
+              ),
+            ),
+          ],
+    );
+  }
+
+  // --- Delete Confirmation Dialog ---
+  Future<void> _showDeleteConfirmation(
+    BuildContext context,
+    WidgetRef ref,
+    Habit habit,
+  ) async {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false, // User must tap button
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete Habit?'),
+          content: SingleChildScrollView(
+            child: ListBody(
+              children: <Widget>[
+                Text('Are you sure you want to delete "${habit.name}"?'),
+                const Text('This action cannot be undone.'),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop(); // Close the dialog
+              },
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Delete'),
+              onPressed: () {
+                ref.read(habitProvider.notifier).deleteHabit(habit.id);
+                Navigator.of(dialogContext).pop(); // Close the dialog
+                // Optionally show a snackbar confirmation
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Habit "${habit.name}" deleted.')),
+                );
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+  // --- End Delete Confirmation ---
 
   // Builds the horizontally scrollable weekly calendar
   Widget _buildWeeklyCalendar(Habit habit) {

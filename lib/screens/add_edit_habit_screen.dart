@@ -481,7 +481,10 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
             ),
           ],
           bottom: const TabBar(
-            tabs: [Tab(text: 'HABIT'), Tab(text: 'REMINDERS')],
+            tabs: [
+              Tab(text: 'EDIT HABIT'),
+              Tab(text: 'REMINDERS'),
+            ], // Renamed first tab
             labelColor: Colors.white,
             indicatorColor: Colors.white,
             unselectedLabelColor: Colors.white70,
