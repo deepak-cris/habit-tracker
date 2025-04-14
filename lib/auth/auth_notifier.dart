@@ -13,9 +13,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
       super(const AuthState.initial());
 
   Future<void> checkAuthStatus() async {
-    state = const AuthState.loading();
-    await Future.delayed(const Duration(seconds: 1)); // Initial loading delay
+    // Add a minimal delay to ensure the initial state is rendered
+    await Future.delayed(const Duration(milliseconds: 50));
     _auth.authStateChanges().listen((user) {
+      print("Auth State Changed: ${user?.uid ?? 'null'}"); // Add logging
       state =
           user != null
               ? AuthState.authenticated(user)
@@ -36,8 +37,22 @@ class AuthNotifier extends StateNotifier<AuthState> {
       );
 
       await _auth.signInWithCredential(credential);
+      // Explicitly set state after successful sign-in
+      final user = _auth.currentUser;
+      if (user != null) {
+        state = AuthState.authenticated(user);
+      } else {
+        // This case should ideally not happen after successful signInWithCredential
+        state = const AuthState.unauthenticated();
+        print("Error: User is null after successful Google sign-in.");
+      }
     } on FirebaseAuthException catch (e) {
       state = AuthState.error(e.message ?? 'Google sign-in failed');
+    } catch (e) {
+      // Add general catch block
+      state = AuthState.error(
+        'An unexpected error occurred during Google sign-in: $e',
+      );
     }
   }
 
@@ -167,3 +182,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   return AuthNotifier()..checkAuthStatus();
 });
+
+// Simple state provider to track splash screen completion
+final splashFinishedProvider = StateProvider<bool>((ref) => false);

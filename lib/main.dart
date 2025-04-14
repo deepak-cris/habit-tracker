@@ -8,12 +8,13 @@ import 'models/habit_status.dart';
 import 'models/reward.dart'; // Import Reward model
 import 'models/claimed_reward.dart'; // Import ClaimedReward model
 import 'auth/auth_notifier.dart';
-import 'screens/login_screen.dart';
-import 'screens/home_screen.dart';
+import 'screens/login_screen.dart'; // Keep for potential use
+import 'screens/home_screen.dart'; // Keep for potential use
 import 'screens/habit_detail_screen.dart'; // Import detail screen for navigation
 import 'services/notification_service.dart'; // Import NotificationService
 import 'package:flutter/services.dart'; // Import for MethodChannel
 import 'package:collection/collection.dart'; // Import for firstWhereOrNull
+import 'screens/splash_screen.dart'; // Import SplashScreen
 
 // Add GlobalKey for Navigator
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -73,22 +74,26 @@ Future<void> _handlePlatformChannelCall(MethodCall call) async {
       print("Dart received handleNotificationTap for habitId: $habitId");
       if (habitId != null && providerContainer != null) {
         // Use the stored container to read the provider
-        final habitsAsync = providerContainer!.read(habitProvider);
-        habitsAsync.whenData((habits) {
-          // Use firstWhereOrNull from collection package
-          final habit = habits.firstWhereOrNull((h) => h.id == habitId);
-          if (habit != null) {
-            print("Navigating to detail screen for habit: ${habit.name}");
-            // Use navigatorKey to navigate
-            navigatorKey.currentState?.push(
-              MaterialPageRoute(
-                builder: (context) => HabitDetailScreen(habit: habit),
-              ),
-            );
-          } else {
-            print("Habit with ID $habitId not found for navigation.");
-          }
-        });
+        // Need to read the provider state safely
+        try {
+          final habitsAsync = providerContainer!.read(habitProvider);
+          habitsAsync.whenData((habits) {
+            final habit = habits.firstWhereOrNull((h) => h.id == habitId);
+            if (habit != null) {
+              print("Navigating to detail screen for habit: ${habit.name}");
+              navigatorKey.currentState?.push(
+                MaterialPageRoute(
+                  builder: (context) => HabitDetailScreen(habit: habit),
+                ),
+              );
+            } else {
+              print("Habit with ID $habitId not found for navigation.");
+            }
+          });
+        } catch (e) {
+          print("Error reading habitProvider in notification handler: $e");
+          // Handle cases where provider might not be ready yet
+        }
       }
       break;
     default:
@@ -122,22 +127,36 @@ class MyApp extends StatelessWidget {
           foregroundColor: Colors.white,
         ),
       ),
+      // Use nested Consumers to watch both splash and auth states
       home: Consumer(
         builder: (context, ref, _) {
-          final authState = ref.watch(authProvider);
-          return authState.when(
-            initial:
-                () => const Scaffold(
-                  body: Center(child: CircularProgressIndicator()),
-                ),
-            authenticated: (user) => const HomeScreen(),
-            unauthenticated: () => const LoginScreen(),
-            loading:
-                () => const Scaffold(
-                  body: Center(child: CircularProgressIndicator()),
-                ),
-            error: (message) => LoginScreen(errorMessage: message),
-          );
+          final splashFinished = ref.watch(splashFinishedProvider);
+
+          if (!splashFinished) {
+            // If splash hasn't finished, always show SplashScreen
+            return const SplashScreen();
+          } else {
+            // If splash IS finished, then check auth state
+            return Consumer(
+              builder: (context, ref, _) {
+                final authState = ref.watch(authProvider);
+                print("Main Auth State Listener (after splash): $authState");
+                return authState.when(
+                  // Show SplashScreen only during initial check
+                  // Show LoginScreen for initial/loading *after* splash is done
+                  initial: () => const LoginScreen(), // Or a loading indicator?
+                  loading:
+                      () =>
+                          const LoginScreen(), // Show Login while auth loads post-splash
+                  // Navigate to HomeScreen if authenticated
+                  authenticated: (user) => const HomeScreen(),
+                  // Navigate to LoginScreen if unauthenticated or error
+                  unauthenticated: () => const LoginScreen(),
+                  error: (message) => LoginScreen(errorMessage: message),
+                );
+              },
+            );
+          }
         },
       ),
     );
