@@ -20,6 +20,7 @@ import '../utils/habit_utils.dart'; // Import habit utils for streak calculation
 import 'package:intl/intl.dart'; // Import intl for date formatting
 import 'package:hive_flutter/hive_flutter.dart'; // Import Hive
 import '../services/notification_service.dart'; // Import NotificationService
+import 'premium_screen.dart'; // Import PremiumScreen
 
 // --- Habit State Management ---
 // Use AsyncValue to handle loading/error states
@@ -493,19 +494,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             // TODO: Implement drawer or menu action
           },
         ),
-        title: const Text(
-          'All', // Match image title
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        centerTitle: false, // Align title left
+        // REMOVED title: const Text('All', ...),
+        centerTitle:
+            false, // Keep alignment if needed, or remove if title is gone
         actions: [
           IconButton(
+            // Changed icon and action
             icon: const Icon(
-              Icons.emoji_events_outlined,
+              Icons.workspace_premium_outlined, // Premium icon
               color: Colors.white,
-            ), // Crown icon placeholder
+            ),
+            tooltip: 'Go Premium', // Add tooltip
             onPressed: () {
-              // TODO: Implement rewards action
+              // Navigate to PremiumScreen
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const PremiumScreen()),
+              );
             },
           ),
           IconButton(
@@ -517,15 +521,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               // TODO: Implement cloud/sync action
             },
           ),
-          IconButton(
-            icon: const Icon(
-              Icons.more_vert,
-              color: Colors.white,
-            ), // Three-dot menu
-            onPressed: () {
-              // TODO: Implement more options menu
-            },
-          ),
+          // REMOVED IconButton for three-dot menu
+          // IconButton(
+          //   icon: const Icon(Icons.more_vert, color: Colors.white),
+          //   onPressed: () {
+          //     // TODO: Implement more options menu
+          //   },
+          // ),
           // Add the original logout button for now
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.white),
