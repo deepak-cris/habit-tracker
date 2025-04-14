@@ -2,14 +2,10 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../utils/quotes.dart'; // Import the quotes
-import 'login_screen.dart'; // Import the login screen
-import '../auth/auth_notifier.dart'; // Import auth provider
-import '../auth/auth_state.dart'; // Import auth state
-import 'home_screen.dart'; // Import home screen
+import '../utils/quotes.dart';
+import '../auth/auth_notifier.dart'; // Import auth_notifier to access splashFinishedProvider
 
 class SplashScreen extends ConsumerStatefulWidget {
-  // Use ConsumerStatefulWidget
   const SplashScreen({super.key});
 
   @override
@@ -21,48 +17,44 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   late AnimationController _controller;
   late Animation<double> _progressAnimation;
   late Animation<double> _scaleAnimation;
-  late Animation<double> _fadeAnimation; // New animation for text fade-in
+  late Animation<double> _fadeAnimation;
   String _quote = '';
-  static const int splashDurationSeconds = 4;
+  // Removed splashDurationSeconds as timer is removed
 
   @override
   void initState() {
     super.initState();
 
-    // Select a random quote
     _quote = motivationalQuotes[Random().nextInt(motivationalQuotes.length)];
 
-    // Setup animation controller
+    // Use a fixed duration for animations, independent of navigation timer
     _controller = AnimationController(
-      duration: const Duration(seconds: splashDurationSeconds),
+      duration: const Duration(seconds: 3), // Animation duration
       vsync: this,
     );
 
-    // Setup progress animation
     _progressAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
     ).animate(_controller)..addListener(() {
-      setState(() {}); // Rebuild to update progress bar
+      setState(() {});
     });
 
-    // Setup scale animation (e.g., zoom from 1.0 to 1.1 scale)
     _scaleAnimation = Tween<double>(
       begin: 1.0,
       end: 1.1,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
 
-    // Setup fade animation (fade in during the first second)
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
-        // Fade in during the first 25% of the splash duration
         curve: const Interval(0.0, 0.25, curve: Curves.easeIn),
       ),
     );
 
     _controller.forward().whenComplete(() {
       // When animation completes, update the splash finished provider
+      // This replaces the Timer logic
       if (mounted) {
         print(
           "Splash Screen: Animation finished, setting splashFinishedProvider to true.",
@@ -70,62 +62,52 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
         ref.read(splashFinishedProvider.notifier).state = true;
       }
     }); // Start the animations and set callback
-
-    // REMOVED Timer and _navigateToLogin method
   }
 
   // REMOVED _navigateToLogin method
 
   @override
   void dispose() {
-    _controller.dispose(); // Dispose animation controller
+    _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Define the teal gradient colors
-    final Color darkTeal = Colors.teal.shade900;
-    final Color lightTeal =
-        Colors.teal.shade400; // Adjusted for better visibility
+    // final Color darkTeal = Colors.teal.shade900;
+    // final Color lightTeal = Colors.teal.shade400;
 
     return Scaffold(
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Background Image with ScaleTransition
           ScaleTransition(
             scale: _scaleAnimation,
             child: Image.asset('assets/images/splash.png', fit: BoxFit.cover),
           ),
-          // Dark + Lighting Effect Overlay using ShaderMask
-          ShaderMask(
+          /* ShaderMask(
             shaderCallback: (Rect bounds) {
-              // Gradient from dark teal at top/bottom to lighter teal in middle
               return LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  darkTeal.withOpacity(0.8), // Darker overlay at top
-                  lightTeal.withOpacity(0.3), // Lighter overlay in middle
-                  darkTeal.withOpacity(0.8), // Darker overlay at bottom
+                  darkTeal.withOpacity(0.8),
+                  lightTeal.withOpacity(0.3),
+                  darkTeal.withOpacity(0.8),
                 ],
-                stops: const [0.0, 0.5, 1.0], // Adjust stops for effect
+                stops: const [0.0, 0.5, 1.0],
               ).createShader(bounds);
             },
-            blendMode: BlendMode.srcATop, // Apply gradient over the image
+            blendMode: BlendMode.srcATop,
             child: Container(color: darkTeal.withOpacity(0.8)),
-          ),
-
-          // Content Column (Quote and Progress Bar)
+          ),*/
           Positioned(
-            bottom: 50.0, // Position content towards the bottom
+            bottom: 50.0,
             left: 20.0,
             right: 20.0,
             child: Column(
-              mainAxisSize: MainAxisSize.min, // Take minimum space
+              mainAxisSize: MainAxisSize.min,
               children: [
-                // Motivational Quote with Fade Transition and improved styling
                 FadeTransition(
                   opacity: _fadeAnimation,
                   child: Container(
@@ -133,26 +115,18 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                       horizontal: 16.0,
                       vertical: 8.0,
                     ),
-                    // Optional: Add a subtle background blur for readability
-                    // decoration: BoxDecoration(
-                    //   color: Colors.black.withOpacity(0.2),
-                    //   borderRadius: BorderRadius.circular(8.0),
-                    // ),
                     child: Text(
                       _quote,
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        fontSize: 20.0, // Slightly larger font
+                        fontSize: 20.0,
                         color: Colors.white,
-                        fontWeight: FontWeight.w600, // Bolder
-                        fontStyle: FontStyle.italic, // Italicize
+                        fontWeight: FontWeight.w600,
+                        fontStyle: FontStyle.italic,
                         shadows: [
-                          // Add shadow for better readability
                           Shadow(
-                            blurRadius: 10.0, // Increase blur
-                            color: Colors.black.withOpacity(
-                              0.7,
-                            ), // Darker shadow
+                            blurRadius: 10.0,
+                            color: Colors.black.withOpacity(0.7),
                             offset: const Offset(1.0, 1.0),
                           ),
                         ],
@@ -161,18 +135,15 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                   ),
                 ),
                 const SizedBox(height: 30.0),
-
-                // Animated Progress Bar
                 ClipRRect(
-                  // Round the corners
                   borderRadius: BorderRadius.circular(10.0),
                   child: LinearProgressIndicator(
-                    value: _progressAnimation.value, // Use progress animation
+                    value: _progressAnimation.value,
                     backgroundColor: Colors.white.withOpacity(0.3),
                     valueColor: const AlwaysStoppedAnimation<Color>(
                       Colors.white,
                     ),
-                    minHeight: 8.0, // Make the bar thicker
+                    minHeight: 8.0,
                   ),
                 ),
               ],

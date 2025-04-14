@@ -2,172 +2,128 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/habit.dart';
 import '../models/habit_status.dart';
-import '../auth/auth_notifier.dart'; // Ensure this import is present
+import '../auth/auth_notifier.dart';
+import '../auth/auth_state.dart'; // Import AuthState for user info
 import '../widgets/habit_card.dart';
 import '../widgets/habit_graph_card.dart';
 import 'add_edit_habit_screen.dart';
-import 'habit_detail_screen.dart'; // Import the Calendar/Details screen
+import 'habit_detail_screen.dart';
 import 'habit_stats_screen.dart';
 import '../providers/points_provider.dart';
 import '../providers/achievement_provider.dart';
 import '../providers/reward_provider.dart';
 import '../models/reward.dart';
 import '../models/achievement.dart';
-import '../models/claimed_reward.dart'; // Import ClaimedReward model
-import 'add_edit_reward_screen.dart'; // Import the Add/Edit Reward screen
-import '../providers/claimed_reward_provider.dart'; // Import provider
-import '../utils/habit_utils.dart'; // Import habit utils for streak calculation
-import 'package:intl/intl.dart'; // Import intl for date formatting
-import 'package:hive_flutter/hive_flutter.dart'; // Import Hive
-import '../services/notification_service.dart'; // Import NotificationService
+import '../models/claimed_reward.dart';
+import 'add_edit_reward_screen.dart';
+import '../providers/claimed_reward_provider.dart';
+import '../utils/habit_utils.dart';
+import 'package:intl/intl.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import '../services/notification_service.dart';
 import 'premium_screen.dart'; // Import PremiumScreen
+import 'about_screen.dart'; // Import AboutScreen
 
 // --- Habit State Management ---
-// Use AsyncValue to handle loading/error states
 final habitProvider =
     StateNotifierProvider<HabitNotifier, AsyncValue<List<Habit>>>((ref) {
-      // Pass ref to notifier so it can read other providers
       return HabitNotifier(ref);
     });
 
 class HabitNotifier extends StateNotifier<AsyncValue<List<Habit>>> {
-  final Ref _ref; // Keep ref to read other providers
-  static const String _habitBoxName = 'habits'; // Define box name
+  final Ref _ref;
+  static const String _habitBoxName = 'habits';
 
   HabitNotifier(this._ref) : super(const AsyncValue.loading()) {
-    // Start with loading state
-    _loadHabits(); // Load habits from Hive on initialization
+    _loadHabits();
   }
 
-  // --- Load Habits from Hive ---
   Future<void> _loadHabits() async {
-    // Ensure initial state is loading before trying to load
     if (!state.isLoading) {
       state = const AsyncValue.loading();
     }
     try {
       final box = await Hive.openBox<Habit>(_habitBoxName);
-      // Use box.values.toList() which returns Iterable<Habit>
       final loadedHabits = box.values.toList();
-      List<Habit> habitsToSet = []; // List to hold the final habits
+      List<Habit> habitsToSet = [];
 
       if (loadedHabits.isEmpty) {
         print("No habits found in Hive. Adding default dummy habit.");
-        habitsToSet = _initialHabits; // Assign dummy data
-        // Persist the dummy data immediately
+        habitsToSet = _initialHabits;
         for (final habit in habitsToSet) {
-          await _persistHabit(habit); // Persist dummy habit
-          NotificationService().scheduleHabitReminders(
-            habit,
-          ); // Schedule its notifications
+          await _persistHabit(habit);
+          NotificationService().scheduleHabitReminders(habit);
         }
       } else {
         habitsToSet = loadedHabits;
         print("Loaded ${habitsToSet.length} habits from Hive.");
-        // Reschedule notifications for all loaded habits
         for (final habit in habitsToSet) {
           NotificationService().scheduleHabitReminders(habit);
         }
       }
-      // Set state to data only after all operations are complete
       state = AsyncValue.data(habitsToSet);
     } catch (e, stackTrace) {
       print("Error loading habits from Hive: $e. Adding default dummy habit.");
-      // Set state to error, but still provide the dummy data as a fallback
-      // This allows the app to function even if Hive fails initially
       final fallbackHabits = _initialHabits;
-      // Attempt to persist fallback habits even on error
       try {
         for (final habit in fallbackHabits) {
           await _persistHabit(habit);
           NotificationService().scheduleHabitReminders(habit);
         }
+        state = AsyncValue.error(e, stackTrace);
       } catch (persistError) {
         print("Error persisting fallback habits: $persistError");
-        // If persisting fallback fails, report the original error without data
         state = AsyncValue.error(e, stackTrace);
-        return; // Exit early
       }
-      // If persisting fallback succeeded, report error but provide fallback data
-      state = AsyncValue.error(e, stackTrace);
-      // Optionally, you could set state = AsyncValue.data(fallbackHabits)
-      // if you prefer to show the dummy data directly instead of an error screen.
-      // For now, let's stick to reporting the error.
-      // state = AsyncValue.data(fallbackHabits); // Alternative: show dummy data on error
     }
   }
-  // --- End Load Habits ---
 
-  // Helper to normalize date keys - IMPORTANT: Use when adding/updating status/notes
   static DateTime _normalizeDate(DateTime date) {
     return DateTime.utc(date.year, date.month, date.day);
   }
 
-  // Single dummy habit with detailed info and status history
-  // NOTE: This dummy data won't be used if Hive loading is successful.
   static final List<Habit> _initialHabits = [
     () {
       final today = DateTime.now();
       final startDate = _normalizeDate(
         today.subtract(const Duration(days: 35)),
-      ); // Start 5 weeks ago
+      );
       final Map<DateTime, HabitStatus> dateStatus = {};
       final Map<DateTime, String> notes = {};
-
-      // Populate some history for the last 5 weeks
       for (int i = 0; i < 35; i++) {
         final date = _normalizeDate(today.subtract(Duration(days: i)));
-        if (date.isBefore(startDate))
-          continue; // Don't add status before start date
-
-        // Example pattern: Mostly done, some skips, occasional fails
+        if (date.isBefore(startDate)) continue;
         if (date.weekday == DateTime.saturday) {
-          // Skip Saturdays
           dateStatus[date] = HabitStatus.skip;
         } else if (i % 10 == 0) {
-          // Fail every 10 days back
           dateStatus[date] = HabitStatus.fail;
           notes[date] = 'Felt tired today.';
         } else if (i % 5 == 0) {
-          // Skip every 5 days back (unless already failed)
           if (dateStatus[date] == null) {
             dateStatus[date] = HabitStatus.skip;
           }
         } else {
-          // Mark as done otherwise
           dateStatus[date] = HabitStatus.done;
           if (i == 2) notes[date] = 'Good session!';
         }
       }
-
       return Habit(
         id: 'dummy_exercise',
         name: 'Morning Exercise',
         description: '30 minutes of cardio or strength training.',
         reasons: ['Improve health', 'Boost energy', 'Reduce stress'],
         startDate: startDate,
-        dateStatus: dateStatus, // Pre-populated status
-        notes: notes, // Pre-populated notes
+        dateStatus: dateStatus,
+        notes: notes,
         scheduleType: 'Fixed',
-        // Example: Weekdays only
-        selectedDays: [
-          false,
-          true,
-          true,
-          true,
-          true,
-          true,
-          false,
-        ], // Su, Mo, Tu, We, Th, Fr, Sa
-        targetStreak: 14, // Example target streak
-        isMastered: false, // Default to false
+        selectedDays: [false, true, true, true, true, true, false],
+        targetStreak: 14,
+        isMastered: false,
       );
-    }(), // Immediately invoke the function to create the habit
+    }(),
   ];
 
-  // Update addHabit to accept all new fields and normalize dates
   Future<void> addHabit({
-    // Add async
     required String name,
     String? description,
     List<String>? reasons,
@@ -175,12 +131,10 @@ class HabitNotifier extends StateNotifier<AsyncValue<List<Habit>>> {
     String scheduleType = 'Fixed',
     required List<bool> selectedDays,
     int targetStreak = 21,
-    // Add new reminder parameters
-    String reminderScheduleType = 'weekly', // Default if not provided
+    String reminderScheduleType = 'weekly',
     List<Map<String, dynamic>>? reminderTimes,
     DateTime? reminderSpecificDateTime,
   }) async {
-    // Add async
     final newHabit = Habit(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       name: name,
@@ -188,35 +142,29 @@ class HabitNotifier extends StateNotifier<AsyncValue<List<Habit>>> {
       reasons: reasons ?? [],
       dateStatus: {},
       notes: {},
-      startDate: _normalizeDate(startDate), // Normalize start date
+      startDate: _normalizeDate(startDate),
       scheduleType: scheduleType,
       selectedDays: selectedDays,
       targetStreak: targetStreak,
-      isMastered: false, // Ensure new habits start as not mastered
-      // Assign new reminder fields
+      isMastered: false,
       reminderScheduleType: reminderScheduleType,
       reminderTimes: reminderTimes,
       reminderSpecificDateTime: reminderSpecificDateTime,
     );
-    // Update state only if it's currently data
     state.whenData((habits) async {
       state = AsyncValue.data([...habits, newHabit]);
-      // Persist and schedule notifications
       await _persistHabit(newHabit);
       NotificationService().scheduleHabitReminders(newHabit);
     });
-    // If state is loading or error, adding might be deferred or handled differently.
-    // For now, we assume adding happens when data is present.
   }
 
   Future<void> editHabit(Habit updatedHabit) async {
     state.whenData((habits) async {
       final updatedList =
-          habits.map((habit) {
-            return habit.id == updatedHabit.id ? updatedHabit : habit;
-          }).toList();
+          habits
+              .map((h) => h.id == updatedHabit.id ? updatedHabit : h)
+              .toList();
       state = AsyncValue.data(updatedList);
-      // Persist and update notifications
       await _persistHabit(updatedHabit);
       NotificationService().scheduleHabitReminders(updatedHabit);
     });
@@ -224,7 +172,6 @@ class HabitNotifier extends StateNotifier<AsyncValue<List<Habit>>> {
 
   Future<void> deleteHabit(String habitId) async {
     state.whenData((habits) async {
-      // Cancel notifications before deleting state and persistence
       await NotificationService().cancelHabitReminders(habitId);
       final updatedList = habits.where((habit) => habit.id != habitId).toList();
       state = AsyncValue.data(updatedList);
@@ -232,7 +179,6 @@ class HabitNotifier extends StateNotifier<AsyncValue<List<Habit>>> {
     });
   }
 
-  // --- Persistence Helper Methods ---
   Future<void> _persistHabit(Habit habit) async {
     try {
       final box = await Hive.openBox<Habit>(_habitBoxName);
@@ -252,93 +198,71 @@ class HabitNotifier extends StateNotifier<AsyncValue<List<Habit>>> {
       print("Error deleting habit $habitId from Hive: $e");
     }
   }
-  // --- End Persistence Helper Methods ---
 
-  // Update status for a specific date (using helper)
   void updateStatus(String habitId, DateTime date, HabitStatus status) {
     state.whenData((habits) {
-      final normalizedDate = _normalizeDate(date); // Use helper
-      Habit? originalHabit; // Store original habit to check status change
-      List<Habit> newState = []; // Build the new state list
-
-      // First pass: Update the status and store the original habit
+      final normalizedDate = _normalizeDate(date);
+      Habit? originalHabit;
+      List<Habit> newState = [];
       for (final habit in habits) {
-        // Iterate over habits from AsyncData
         if (habit.id == habitId) {
-          originalHabit = habit; // Store the original state before modification
-          // Create a mutable copy of the map
+          originalHabit = habit;
           final newStatusMap = Map<DateTime, HabitStatus>.from(
             habit.dateStatus,
           );
-          // Update or remove the status for the normalized date
           if (status == HabitStatus.none) {
-            newStatusMap.remove(
-              normalizedDate,
-            ); // Remove if setting back to none
+            newStatusMap.remove(normalizedDate);
           } else {
             newStatusMap[normalizedDate] = status;
           }
-          // Add the updated habit (without isMastered change yet)
           newState.add(
             Habit(
               id: habit.id,
               name: habit.name,
               description: habit.description,
               reasons: habit.reasons,
-              dateStatus: newStatusMap, // Use updated status map
+              dateStatus: newStatusMap,
               notes: habit.notes,
               startDate: habit.startDate,
               scheduleType: habit.scheduleType,
               selectedDays: habit.selectedDays,
               targetStreak: habit.targetStreak,
-              isMastered:
-                  habit.isMastered, // Keep original mastered status for now
+              isMastered: habit.isMastered,
+              reminderScheduleType: habit.reminderScheduleType,
+              reminderTimes: habit.reminderTimes,
+              reminderSpecificDateTime: habit.reminderSpecificDateTime,
             ),
           );
         } else {
-          newState.add(habit); // Add unchanged habits
+          newState.add(habit);
         }
       }
-
-      // --- Award Points & Check Achievements ---
       if (originalHabit != null) {
-        final previousStatus = originalHabit!.getStatusForDate(normalizedDate);
-        // Award points only when changing *to* Done from something else
+        final previousStatus = originalHabit.getStatusForDate(normalizedDate);
         if (status == HabitStatus.done && previousStatus != HabitStatus.done) {
-          _ref.read(pointsProvider.notifier).addPoints(10); // Award 10 points
+          _ref.read(pointsProvider.notifier).addPoints(10);
         }
-        // TODO: Consider if points should be deducted on changing *from* Done?
-
-        // Check achievements after any status update
-        // Calculate overall streak for the *updated* habit first
         final updatedHabitForCheck = newState.firstWhere(
           (h) => h.id == habitId,
         );
         int overallLongestStreakForCheck = _calculateOverallLongestStreak(
           updatedHabitForCheck,
         );
-        // Call the per-habit check method in AchievementNotifier
         _ref
             .read(unlockedAchievementsProvider.notifier)
             .checkAndUnlockAchievementsForHabit(
               updatedHabitForCheck,
               overallLongestStreakForCheck,
             );
-
-        // --- Check for Habit Mastered ---
-        // Find the updated habit in the new state list
         final updatedHabitIndex = newState.indexWhere((h) => h.id == habitId);
         if (updatedHabitIndex != -1) {
           final updatedHabit = newState[updatedHabitIndex];
           if (!updatedHabit.isMastered) {
-            // Only check if not already mastered
-            // Calculate overall longest streak for *this* habit
             int overallLongestStreak = _calculateOverallLongestStreak(
               updatedHabit,
             );
             if (overallLongestStreak >= 21) {
               print("Habit ${updatedHabit.name} mastered!");
-              // Mark as mastered - create a new instance and replace in the list
               newState[updatedHabitIndex] = Habit(
                 id: updatedHabit.id,
                 name: updatedHabit.name,
@@ -350,77 +274,62 @@ class HabitNotifier extends StateNotifier<AsyncValue<List<Habit>>> {
                 scheduleType: updatedHabit.scheduleType,
                 selectedDays: updatedHabit.selectedDays,
                 targetStreak: updatedHabit.targetStreak,
-                isMastered: true, // Set the flag
+                isMastered: true,
+                reminderScheduleType: updatedHabit.reminderScheduleType,
+                reminderTimes: updatedHabit.reminderTimes,
+                reminderSpecificDateTime: updatedHabit.reminderSpecificDateTime,
               );
-              // TODO: Persist this change too
             }
           }
         }
       }
-
-      state = AsyncValue.data(
-        newState,
-      ); // Assign the final updated list to the state
-      // Find the potentially updated habit to persist
+      state = AsyncValue.data(newState);
       final habitToPersist = newState.firstWhere((h) => h.id == habitId);
-      _persistHabit(habitToPersist); // Persist the updated habit
+      _persistHabit(habitToPersist);
     });
   }
 
-  // Helper function to calculate the overall longest streak for a single habit
   int _calculateOverallLongestStreak(Habit habit) {
     int longestStreak = 0;
     int currentStreak = 0;
-    // Get all status dates and sort them
     final sortedDates = habit.dateStatus.keys.toList()..sort();
-
     if (sortedDates.isEmpty) return 0;
-
-    // Iterate from start date up to the last recorded date or today, whichever is later
     DateTime checkDate = habit.startDate;
     DateTime lastDateToCheck = _normalizeDate(DateTime.now());
     if (sortedDates.isNotEmpty && sortedDates.last.isAfter(lastDateToCheck)) {
       lastDateToCheck = sortedDates.last;
     }
-
     while (!checkDate.isAfter(lastDateToCheck)) {
       final normalizedCheckDate = _normalizeDate(checkDate);
       final status = habit.dateStatus[normalizedCheckDate] ?? HabitStatus.none;
-
       if (status == HabitStatus.done) {
         currentStreak++;
       } else if (status == HabitStatus.skip) {
-        // Skips don't break the streak, but don't increment it either
       } else {
-        // Fail or None breaks the streak
         longestStreak =
             longestStreak > currentStreak ? longestStreak : currentStreak;
         currentStreak = 0;
       }
       checkDate = checkDate.add(const Duration(days: 1));
     }
-    // Final check in case the streak ended on the last day checked
     longestStreak =
         longestStreak > currentStreak ? longestStreak : currentStreak;
     return longestStreak;
   }
 
-  // Add/Update note for a specific date (using helper)
   void updateNote(String habitId, DateTime date, String note) {
     state.whenData((habits) {
-      final normalizedDate = _normalizeDate(date); // Use helper
-      Habit? habitToPersist; // Store the habit that needs persisting
-
+      final normalizedDate = _normalizeDate(date);
+      Habit? habitToPersist;
       final updatedList =
           habits.map((habit) {
             if (habit.id == habitId) {
               final newNotesMap = Map<DateTime, String>.from(habit.notes);
               if (note.isEmpty) {
-                newNotesMap.remove(normalizedDate); // Remove if note is empty
+                newNotesMap.remove(normalizedDate);
               } else {
                 newNotesMap[normalizedDate] = note;
               }
-              // Create the updated habit instance
               final updatedHabit = Habit(
                 id: habit.id,
                 name: habit.name,
@@ -432,24 +341,25 @@ class HabitNotifier extends StateNotifier<AsyncValue<List<Habit>>> {
                 scheduleType: habit.scheduleType,
                 selectedDays: habit.selectedDays,
                 targetStreak: habit.targetStreak,
-                isMastered: habit.isMastered, // Include isMastered
+                isMastered: habit.isMastered,
+                reminderScheduleType: habit.reminderScheduleType,
+                reminderTimes: habit.reminderTimes,
+                reminderSpecificDateTime: habit.reminderSpecificDateTime,
               );
-              habitToPersist = updatedHabit; // Mark this one for persistence
+              habitToPersist = updatedHabit;
               return updatedHabit;
             }
             return habit;
           }).toList();
-
-      state = AsyncValue.data(updatedList); // Update the state
+      state = AsyncValue.data(updatedList);
       if (habitToPersist != null) {
-        _persistHabit(habitToPersist!); // Persist the changed habit
+        _persistHabit(habitToPersist!);
       }
     });
   }
 }
-// --- End Habit State Management ---
 
-// Convert to ConsumerStatefulWidget to manage TabController state
+// --- HomeScreen Widget ---
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -460,14 +370,13 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  int _currentTabIndex = 1; // Start with HABITS tab selected
+  int _currentTabIndex = 1;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this, initialIndex: 1);
     _tabController.addListener(() {
-      // Update state when tab changes to show/hide FAB
       if (_tabController.index != _currentTabIndex) {
         setState(() {
           _currentTabIndex = _tabController.index;
@@ -484,116 +393,154 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Remove DefaultTabController, use the state's _tabController
+    // Get current user info for the drawer
+    final authState = ref.watch(authProvider);
+    final user = authState.maybeWhen(
+      authenticated: (user) => user,
+      orElse: () => null,
+    );
+    final userEmail = user?.email ?? 'Not logged in';
+    final userName =
+        user?.displayName ??
+        (user?.isAnonymous == true ? 'Anonymous User' : 'User');
+    final userPhotoUrl = user?.photoURL;
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.teal,
-        leading: IconButton(
-          icon: const Icon(Icons.menu, color: Colors.white), // Hamburger icon
-          onPressed: () {
-            // TODO: Implement drawer or menu action
-          },
-        ),
-        // REMOVED title: const Text('All', ...),
-        centerTitle:
-            false, // Keep alignment if needed, or remove if title is gone
-        actions: [
-          IconButton(
-            // Changed icon and action
-            icon: const Icon(
-              Icons.workspace_premium_outlined, // Premium icon
-              color: Colors.white,
-            ),
-            tooltip: 'Go Premium', // Add tooltip
-            onPressed: () {
-              // Navigate to PremiumScreen
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (context) => const PremiumScreen()),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(
-              Icons.cloud_outlined,
-              color: Colors.white,
-            ), // Cloud icon placeholder
-            onPressed: () {
-              // TODO: Implement cloud/sync action
-            },
-          ),
-          // REMOVED IconButton for three-dot menu
-          // IconButton(
-          //   icon: const Icon(Icons.more_vert, color: Colors.white),
-          //   onPressed: () {
-          //     // TODO: Implement more options menu
-          //   },
-          // ),
-          // Add the original logout button for now
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
-            onPressed: () => ref.read(authProvider.notifier).signOut(),
-          ),
+        foregroundColor:
+            Colors.white, // Ensure icons (like hamburger) are white
+        // Title removed
+        actions: const [
+          // Removed all actions, they are now in the Drawer
         ],
         bottom: TabBar(
-          controller: _tabController, // Assign controller
+          controller: _tabController,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
           indicatorColor: Colors.white,
           tabs: const [
-            // Keep tabs const
             Tab(text: 'REWARDS'),
             Tab(text: 'HABITS'),
             Tab(text: 'GRAPHS'),
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController, // Assign controller
-        children: [
-          _buildRewardsTab(), // REWARDS Tab (New build method)
-          _buildHabitsTab(), // HABITS Tab
-          _buildGraphsTab(), // GRAPHS Tab
-        ],
+      // Add the Drawer
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: <Widget>[
+            UserAccountsDrawerHeader(
+              accountName: Text(userName),
+              accountEmail: Text(userEmail),
+              currentAccountPicture: CircleAvatar(
+                backgroundColor: Colors.white,
+                backgroundImage:
+                    userPhotoUrl != null ? NetworkImage(userPhotoUrl) : null,
+                child:
+                    userPhotoUrl == null
+                        ? Text(
+                          userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
+                          style: const TextStyle(fontSize: 40.0),
+                        )
+                        : null,
+              ),
+              decoration: const BoxDecoration(color: Colors.teal),
+            ),
+            ListTile(
+              // Add Go Premium option
+              leading: const Icon(Icons.workspace_premium_outlined),
+              title: const Text('Go Premium'),
+              onTap: () {
+                Navigator.pop(context); // Close drawer
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const PremiumScreen(),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.file_upload_outlined),
+              title: const Text('Import Data'),
+              onTap: () {
+                Navigator.pop(context); // Close drawer
+                print("Import Data tapped - Not implemented yet.");
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Import Data coming soon!')),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.file_download_outlined),
+              title: const Text('Export Data'),
+              onTap: () {
+                Navigator.pop(context); // Close drawer
+                print("Export Data tapped - Not implemented yet.");
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Export Data coming soon!')),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.info_outline),
+              title: const Text('About'),
+              onTap: () {
+                Navigator.pop(context); // Close drawer
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const AboutScreen()),
+                );
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.logout),
+              title: const Text('Logout'),
+              onTap: () {
+                Navigator.pop(context); // Close drawer
+                ref.read(authProvider.notifier).signOut();
+              },
+            ),
+          ],
+        ),
       ),
-      // Conditionally display FAB based on the current tab index
+      body: TabBarView(
+        controller: _tabController,
+        children: [_buildRewardsTab(), _buildHabitsTab(), _buildGraphsTab()],
+      ),
       floatingActionButton:
           _currentTabIndex ==
-                  1 // Show only on HABITS tab (index 1)
+                  1 // Show only on HABITS tab
               ? FloatingActionButton(
                 backgroundColor: Colors.pink,
                 foregroundColor: Colors.white,
                 onPressed: () {
-                  // Added missing onPressed parameter
-                  // Navigate to the AddEditHabitScreen
                   Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (context) => const AddEditHabitScreen(),
                     ),
                   );
-                }, // Added missing closing parenthesis for onPressed
+                },
                 child: const Icon(Icons.add),
               )
-              : null, // Return null if not on the HABITS tab
+              : null,
     );
   }
 
-  // Extracted build methods for tabs for clarity
+  // --- Build Methods for Tabs ---
   Widget _buildHabitsTab() {
-    // Watch the AsyncValue state
     final habitsAsync = ref.watch(habitProvider);
-
-    // Use .when to handle loading, error, and data states
     return habitsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error:
           (error, stackTrace) => Center(
             child: Text(
-              'Error loading habits: $error\n$stackTrace', // Show error details
+              'Error loading habits: $error\n$stackTrace',
               textAlign: TextAlign.center,
             ),
           ),
       data: (habits) {
-        // If data is loaded and empty, show a message
         if (habits.isEmpty) {
           return const Center(
             child: Text(
@@ -602,13 +549,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             ),
           );
         }
-        // Otherwise, build the list
         return ListView.builder(
           padding: const EdgeInsets.all(8.0),
           itemCount: habits.length,
           itemBuilder: (context, index) {
             final habit = habits[index];
-            // HabitCard handles its own tap navigation internally now
             return HabitCard(habit: habit);
           },
         );
@@ -617,10 +562,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Widget _buildGraphsTab() {
-    // Watch the AsyncValue state
     final habitsAsync = ref.watch(habitProvider);
-
-    // Use .when to handle loading, error, and data states
     return habitsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error:
@@ -640,17 +582,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           );
         }
         return ListView.builder(
-          padding: const EdgeInsets.only(
-            top: 8.0,
-            bottom: 80.0,
-          ), // Padding for FAB overlap
+          padding: const EdgeInsets.only(top: 8.0, bottom: 80.0),
           itemCount: habits.length,
           itemBuilder: (context, index) {
             final habit = habits[index];
             return HabitGraphCard(
               habit: habit,
               onTap: () {
-                // Navigate to stats screen on tap
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (context) => HabitStatsScreen(habit: habit),
@@ -664,19 +602,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  // --- Build Method for REWARDS Tab ---
   Widget _buildRewardsTab() {
     final points = ref.watch(pointsProvider);
     final rewards = ref.watch(rewardProvider);
     final unlockedAchievementIds = ref.watch(unlockedAchievementsProvider);
     final allAchievements = ref.watch(predefinedAchievementsProvider);
-    final claimedRewards = ref.watch(
-      claimedRewardProvider,
-    ); // Watch claimed rewards
-    final habitsAsync = ref.watch(habitProvider); // Watch async habits
-
-    // --- Prepare Data for Achievement List ---
-    // Handle habit loading state before processing achievements
+    final claimedRewards = ref.watch(claimedRewardProvider);
+    final habitsAsync = ref.watch(habitProvider);
     final Widget achievementListWidget = habitsAsync.when(
       loading:
           () => const Center(
@@ -693,7 +625,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             ),
           ),
       data: (allHabits) {
-        // Proceed with building achievement list only if habits are loaded
         final List<Map<String, dynamic>> unlockedInstances = [];
         unlockedAchievementIds.forEach((achievementId, habitIdList) {
           final achievement = allAchievements.firstWhere(
@@ -707,7 +638,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   criteria: {},
                 ),
           );
-
           for (final habitId in habitIdList) {
             final habit = allHabits.firstWhere(
               (h) => h.id == habitId,
@@ -727,7 +657,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             });
           }
         });
-
         if (unlockedInstances.isEmpty) {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 16.0),
@@ -751,7 +680,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 '{habitName}',
                 "'$habitName'",
               );
-
               return Card(
                 margin: const EdgeInsets.symmetric(vertical: 4.0),
                 elevation: 1,
@@ -779,11 +707,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         }
       },
     );
-
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: [
-        // --- Points Display ---
         Card(
           elevation: 2,
           child: Padding(
@@ -804,15 +730,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ),
         ),
         const SizedBox(height: 24),
-
-        // --- Custom Rewards Section ---
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              'Rewards',
-              style: Theme.of(context).textTheme.titleLarge,
-            ), // Renamed title
+            Text('Rewards', style: Theme.of(context).textTheme.titleLarge),
             IconButton(
               icon: const Icon(
                 Icons.add_circle_outline,
@@ -820,12 +741,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               ),
               tooltip: 'Add Custom Reward',
               onPressed: () {
-                // Navigate to AddEditRewardScreen
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder:
-                        (context) =>
-                            const AddEditRewardScreen(), // Navigate to add/edit screen
+                    builder: (context) => const AddEditRewardScreen(),
                   ),
                 );
               },
@@ -866,18 +784,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   '${reward.pointCost} Points ${reward.description != null ? "- ${reward.description}" : ""}',
                 ),
                 trailing: Row(
-                  // Use Row for multiple trailing widgets
-                  mainAxisSize:
-                      MainAxisSize.min, // Prevent Row from taking full width
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     ElevatedButton(
                       onPressed:
                           canAfford
                               ? () {
-                                // Show confirmation dialog before claiming
                                 _showClaimConfirmation(context, ref, reward);
                               }
-                              : null, // Disable if cannot afford
+                              : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor:
                             canAfford ? Colors.amber.shade800 : Colors.grey,
@@ -890,48 +805,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       ),
                       child: const Text('Claim'),
                     ),
-                    const SizedBox(width: 4), // Add spacing
+                    const SizedBox(width: 4),
                     IconButton(
-                      // Add delete button
                       icon: Icon(
                         Icons.delete_outline,
                         color: Colors.red.shade700,
                       ),
                       tooltip: 'Delete Reward',
                       onPressed: () {
-                        // Show delete confirmation
                         _showDeleteRewardConfirmation(context, ref, reward);
                       },
                     ),
                   ],
                 ),
                 onLongPress: () {
-                  // Keep long press for potential future edit action
-                  // TODO: Show edit options
                   print("Long press to edit ${reward.name} (TODO)");
                 },
               );
             },
           ),
         const SizedBox(height: 24),
-
-        // --- Achievements Section ---
         Text('Achievements', style: Theme.of(context).textTheme.titleLarge),
         const Divider(),
-        achievementListWidget, // Display the built achievement list or loading/error state
-        const SizedBox(height: 24), // Add spacing before claimed rewards
-        // --- Claimed Rewards History Section ---
+        achievementListWidget,
+        const SizedBox(height: 24),
         ExpansionTile(
           title: Row(
-            // Use Row for title and clear button
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
                 'Claimed Rewards',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
-              if (claimedRewards
-                  .isNotEmpty) // Show button only if list is not empty
+              if (claimedRewards.isNotEmpty)
                 IconButton(
                   icon: Icon(
                     Icons.delete_sweep_outlined,
@@ -944,7 +850,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 ),
             ],
           ),
-          initiallyExpanded: false, // Start collapsed
+          initiallyExpanded: false,
           children: <Widget>[
             if (claimedRewards.isEmpty)
               const Padding(
@@ -959,27 +865,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             else
               ListView.builder(
                 shrinkWrap: true,
-                physics:
-                    const NeverScrollableScrollPhysics(), // Prevent nested scrolling issues
+                physics: const NeverScrollableScrollPhysics(),
                 itemCount: claimedRewards.length,
                 itemBuilder: (context, index) {
                   final claim = claimedRewards[index];
                   final formattedDate = DateFormat.yMMMd().add_jm().format(
                     claim.claimTimestamp,
-                  ); // Example format
+                  );
                   String subtitleText =
                       '$formattedDate - ${claim.pointCost} Points';
                   if (claim.claimReason != null &&
                       claim.claimReason!.isNotEmpty) {
                     subtitleText += '\nReason: ${claim.claimReason}';
                   }
-
                   return Card(
-                    // Wrap ListTile in a Card
-                    margin: const EdgeInsets.symmetric(
-                      vertical: 4.0,
-                    ), // Add margin like achievements
-                    elevation: 1, // Add elevation like achievements
+                    margin: const EdgeInsets.symmetric(vertical: 4.0),
+                    elevation: 1,
                     child: ListTile(
                       leading: const Icon(
                         Icons.history,
@@ -989,10 +890,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       subtitle: Text(subtitleText),
                       isThreeLine:
                           claim.claimReason != null &&
-                          claim
-                              .claimReason!
-                              .isNotEmpty, // Adjust layout for reason
-                      // trailing: Text('${claim.pointCost} Pts', style: TextStyle(fontWeight: FontWeight.bold)), // Optional trailing points
+                          claim.claimReason!.isNotEmpty,
                     ),
                   );
                 },
@@ -1003,21 +901,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  // --- Confirmation Dialog for Claiming Reward ---
+  // --- Confirmation Dialogs (unchanged) ---
   Future<void> _showClaimConfirmation(
     BuildContext context,
     WidgetRef ref,
     Reward reward,
   ) async {
-    final reasonController =
-        TextEditingController(); // Controller for the reason
+    final reasonController = TextEditingController();
     return showDialog<void>(
       context: context,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
           title: const Text('Claim Reward?'),
           content: SingleChildScrollView(
-            // Wrap in case of small screens
             child: ListBody(
               children: <Widget>[
                 Text('Claim "${reward.name}" for ${reward.pointCost} points?'),
@@ -1045,13 +941,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               onPressed: () {
                 bool claimed = ref
                     .read(rewardProvider.notifier)
-                    .claimReward(
-                      reward.id,
-                      reasonController.text.trim(),
-                    ); // Pass reason
-                Navigator.of(dialogContext).pop(); // Close dialog first
+                    .claimReward(reward.id, reasonController.text.trim());
+                Navigator.of(dialogContext).pop();
                 if (!claimed && mounted) {
-                  // Check if widget is still mounted
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('Not enough points!'),
@@ -1067,7 +959,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  // --- Confirmation Dialog for Deleting Reward ---
   Future<void> _showDeleteRewardConfirmation(
     BuildContext context,
     WidgetRef ref,
@@ -1093,13 +984,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               child: const Text('Delete'),
               onPressed: () {
                 ref.read(rewardProvider.notifier).deleteReward(reward.id);
-                Navigator.of(dialogContext).pop(); // Close dialog
-                // Show feedback (optional but good UX)
+                Navigator.of(dialogContext).pop();
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Reward "${reward.name}" deleted.'),
-                      backgroundColor: Colors.green, // Use a success color
+                      backgroundColor: Colors.green,
                     ),
                   );
                 }
@@ -1111,7 +1001,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  // --- Confirmation Dialog for Clearing History ---
   Future<void> _showClearHistoryConfirmation(
     BuildContext context,
     WidgetRef ref,
@@ -1135,15 +1024,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               style: TextButton.styleFrom(foregroundColor: Colors.red),
               child: const Text('Clear All'),
               onPressed: () async {
-                // Make async for the provider call
                 await ref.read(claimedRewardProvider.notifier).clearHistory();
-                Navigator.of(dialogContext).pop(); // Close dialog
-                // Show feedback (optional but good UX)
+                Navigator.of(dialogContext).pop();
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('Claimed reward history cleared.'),
-                      backgroundColor: Colors.green, // Use a success color
+                      backgroundColor: Colors.green,
                     ),
                   );
                 }

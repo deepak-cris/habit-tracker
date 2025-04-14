@@ -142,12 +142,15 @@ class MyApp extends StatelessWidget {
                 final authState = ref.watch(authProvider);
                 print("Main Auth State Listener (after splash): $authState");
                 return authState.when(
-                  // Show SplashScreen only during initial check
-                  // Show LoginScreen for initial/loading *after* splash is done
-                  initial: () => const LoginScreen(), // Or a loading indicator?
+                  // Show Loading indicator for initial/loading *after* splash is done
+                  initial:
+                      () => const Scaffold(
+                        body: Center(child: CircularProgressIndicator()),
+                      ),
                   loading:
-                      () =>
-                          const LoginScreen(), // Show Login while auth loads post-splash
+                      () => const Scaffold(
+                        body: Center(child: CircularProgressIndicator()),
+                      ),
                   // Navigate to HomeScreen if authenticated
                   authenticated: (user) => const HomeScreen(),
                   // Navigate to LoginScreen if unauthenticated or error

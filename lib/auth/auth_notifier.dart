@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'auth_state.dart';
+import 'dart:async'; // Import for StreamSubscription
 
 class AuthNotifier extends StateNotifier<AuthState> {
   final FirebaseAuth _auth;
@@ -10,18 +11,56 @@ class AuthNotifier extends StateNotifier<AuthState> {
   AuthNotifier()
     : _auth = FirebaseAuth.instance,
       _googleSignIn = GoogleSignIn(scopes: ['email', 'profile']),
-      super(const AuthState.initial());
+      super(const AuthState.initial()) {
+    // Start listening to auth changes immediately after construction
+    _listenToAuthChanges();
+  }
 
+  // Listener for ongoing auth changes
+  StreamSubscription<User?>? _authStateSubscription;
+
+  void _listenToAuthChanges() {
+    _authStateSubscription?.cancel(); // Cancel previous listener if exists
+    _authStateSubscription = _auth.authStateChanges().listen((user) {
+      print("Auth State Listener Update: ${user?.uid ?? 'null'}");
+      // Update state ONLY if it's different from the current user state
+      // This prevents unnecessary updates if checkAuthStatus already set it.
+      final currentStateUser = state.maybeWhen(
+        authenticated: (u) => u,
+        orElse: () => null,
+      );
+      if (user?.uid != currentStateUser?.uid) {
+        state =
+            user != null
+                ? AuthState.authenticated(user)
+                : const AuthState.unauthenticated();
+      }
+    });
+  }
+
+  // Initial check on app start
   Future<void> checkAuthStatus() async {
-    // Add a minimal delay to ensure the initial state is rendered
-    await Future.delayed(const Duration(milliseconds: 50));
-    _auth.authStateChanges().listen((user) {
-      print("Auth State Changed: ${user?.uid ?? 'null'}"); // Add logging
+    // Don't set loading here, let the initial state be initial
+    try {
+      // Wait for the first emission from the auth state stream
+      await _auth.authStateChanges().first;
+      final user = _auth.currentUser;
+      print("Initial Auth Check Complete. User: ${user?.uid ?? 'null'}");
+      // Set the state based *only* on this initial check
       state =
           user != null
               ? AuthState.authenticated(user)
               : const AuthState.unauthenticated();
-    });
+    } catch (e) {
+      print("Error during initial auth check: $e");
+      state = AuthState.error("Failed to check authentication status.");
+    }
+  }
+
+  @override
+  void dispose() {
+    _authStateSubscription?.cancel(); // Cancel listener on dispose
+    super.dispose();
   }
 
   Future<void> signInWithGoogle() async {
