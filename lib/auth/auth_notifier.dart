@@ -91,6 +91,66 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  // --- Phone Authentication Methods ---
+
+  // Method to initiate phone number verification
+  Future<void> verifyPhoneNumber({
+    required String phoneNumber,
+    required Function(PhoneAuthCredential) verificationCompleted,
+    required Function(FirebaseAuthException) verificationFailed,
+    required Function(String, int?) codeSent,
+    required Function(String) codeAutoRetrievalTimeout,
+    int? forceResendingToken, // Add optional parameter
+  }) async {
+    // REMOVE setting global loading state here. Let UI handle local loading.
+    // state = const AuthState.loading();
+    try {
+      await _auth.verifyPhoneNumber(
+        phoneNumber: phoneNumber,
+        verificationCompleted: verificationCompleted,
+        verificationFailed: verificationFailed,
+        codeSent: codeSent,
+        codeAutoRetrievalTimeout: codeAutoRetrievalTimeout,
+        forceResendingToken: forceResendingToken, // Pass the token
+        timeout: const Duration(
+          seconds: 120,
+        ), // Increase timeout to 120 seconds
+      );
+      // Note: State is not set to success here, as the flow continues in callbacks
+    } on FirebaseAuthException catch (e) {
+      // Set error state if verification initiation fails
+      state = AuthState.error(
+        e.message ?? 'Phone verification failed: ${e.code}',
+      );
+    } catch (e) {
+      // Set error state for other unexpected errors
+      state = AuthState.error(
+        'An unexpected error occurred during phone verification: $e',
+      );
+    }
+  }
+
+  // Method to sign in using the credential obtained after OTP verification
+  Future<void> signInWithPhoneCredential(PhoneAuthCredential credential) async {
+    try {
+      state = const AuthState.loading();
+      await _auth.signInWithCredential(credential);
+      // Explicitly set state to authenticated after successful sign-in
+      final user = _auth.currentUser;
+      if (user != null) {
+        state = AuthState.authenticated(user);
+      } else {
+        state =
+            const AuthState.unauthenticated(); // Handle unexpected null user
+      }
+    } on FirebaseAuthException catch (e) {
+      state = AuthState.error(e.message ?? 'OTP Sign in failed');
+    } catch (e) {
+      state = AuthState.error('An unexpected error occurred: $e');
+    }
+  }
+  // --- End Phone Authentication Methods ---
+
   Future<void> signOut() async {
     // If the user is anonymous, delete the account on sign out
     // Otherwise, they can't easily sign back in to the same anonymous account
