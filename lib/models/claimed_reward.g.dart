@@ -54,3 +54,27 @@ class ClaimedRewardAdapter extends TypeAdapter<ClaimedReward> {
           runtimeType == other.runtimeType &&
           typeId == other.typeId;
 }
+
+// **************************************************************************
+// JsonSerializableGenerator
+// **************************************************************************
+
+ClaimedReward _$ClaimedRewardFromJson(Map<String, dynamic> json) =>
+    ClaimedReward(
+      id: json['id'] as String,
+      rewardId: json['rewardId'] as String,
+      rewardName: json['rewardName'] as String,
+      pointCost: (json['pointCost'] as num).toInt(),
+      claimReason: json['claimReason'] as String?,
+      claimTimestamp: DateTime.parse(json['claimTimestamp'] as String),
+    );
+
+Map<String, dynamic> _$ClaimedRewardToJson(ClaimedReward instance) =>
+    <String, dynamic>{
+      'id': instance.id,
+      'rewardId': instance.rewardId,
+      'rewardName': instance.rewardName,
+      'pointCost': instance.pointCost,
+      'claimReason': instance.claimReason,
+      'claimTimestamp': instance.claimTimestamp.toIso8601String(),
+    };

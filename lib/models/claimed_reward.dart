@@ -1,8 +1,10 @@
 import 'package:hive/hive.dart';
+import 'package:json_annotation/json_annotation.dart'; // Added
 
 part 'claimed_reward.g.dart';
 
 @HiveType(typeId: 3) // Unique typeId
+@JsonSerializable() // Added
 class ClaimedReward extends HiveObject {
   @HiveField(0)
   final String id; // Unique ID for this claim instance
@@ -30,4 +32,11 @@ class ClaimedReward extends HiveObject {
     this.claimReason,
     required this.claimTimestamp,
   });
+
+  // Factory constructor for JSON deserialization
+  factory ClaimedReward.fromJson(Map<String, dynamic> json) =>
+      _$ClaimedRewardFromJson(json);
+
+  // Method for JSON serialization
+  Map<String, dynamic> toJson() => _$ClaimedRewardToJson(this);
 }

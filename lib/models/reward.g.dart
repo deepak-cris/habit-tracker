@@ -51,3 +51,23 @@ class RewardAdapter extends TypeAdapter<Reward> {
           runtimeType == other.runtimeType &&
           typeId == other.typeId;
 }
+
+// **************************************************************************
+// JsonSerializableGenerator
+// **************************************************************************
+
+Reward _$RewardFromJson(Map<String, dynamic> json) => Reward(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      description: json['description'] as String?,
+      pointCost: (json['pointCost'] as num).toInt(),
+      iconCodePoint: (json['iconCodePoint'] as num?)?.toInt(),
+    );
+
+Map<String, dynamic> _$RewardToJson(Reward instance) => <String, dynamic>{
+      'id': instance.id,
+      'name': instance.name,
+      'description': instance.description,
+      'pointCost': instance.pointCost,
+      'iconCodePoint': instance.iconCodePoint,
+    };

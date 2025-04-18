@@ -8,7 +8,16 @@
     <!-- Required to reschedule alarms on boot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
-    <application
+   <!-- Permissions for Storage (Import/Export) -->
+   <!-- Required for reading/writing backup files -->
+   <!-- Note: Behavior changes with Scoped Storage on Android 10+ -->
+   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+   <!-- For Android 13+, if targeting SDK 33+, READ_MEDIA_IMAGES/VIDEO/AUDIO might be needed
+        if accessing media, but for general files READ/WRITE_EXTERNAL_STORAGE is often sufficient
+        when combined with runtime requests. -->
+
+   <application
         android:label="habit_tracker"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">

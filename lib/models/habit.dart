@@ -1,9 +1,62 @@
 import 'package:hive/hive.dart';
+import 'package:json_annotation/json_annotation.dart'; // Added for JSON serialization
 import 'habit_status.dart'; // Import the new enum
 
 part 'habit.g.dart';
 
+// Helper function to convert Map<DateTime, HabitStatus> to Map<String, String> for JSON
+Map<String, String> _dateTimeHabitStatusMapToJson(
+  Map<DateTime, HabitStatus> map,
+) {
+  return map.map((key, value) {
+    // Convert DateTime key to ISO 8601 string
+    final stringKey = key.toIso8601String();
+    // Convert HabitStatus enum value to its name string
+    final stringValue = value.name;
+    return MapEntry(stringKey, stringValue);
+  });
+}
+
+// Helper function to convert Map<DateTime, String> to Map<String, String> for JSON
+Map<String, String> _dateTimeStringMapToJson(Map<DateTime, String> map) {
+  return map.map((key, value) {
+    // Convert DateTime key to ISO 8601 string
+    final stringKey = key.toIso8601String();
+    // Value is already a string
+    return MapEntry(stringKey, value);
+  });
+}
+
+// Helper function to convert Map<String, dynamic> back to Map<DateTime, HabitStatus> from JSON
+Map<DateTime, HabitStatus> _dateTimeHabitStatusMapFromJson(
+  Map<String, dynamic> json,
+) {
+  return json.map((key, value) {
+    // Parse ISO 8601 string key back to DateTime
+    final dateTimeKey = DateTime.parse(key);
+    // Convert string value back to HabitStatus enum
+    // Assumes HabitStatus enum has values matching the stored strings (e.g., 'none', 'completed')
+    // Add error handling if value might not match an enum case
+    final statusValue = HabitStatus.values.firstWhere(
+      (e) => e.name == value,
+      orElse: () => HabitStatus.none, // Default or error case
+    );
+    return MapEntry(dateTimeKey, statusValue);
+  });
+}
+
+// Helper function to convert Map<String, dynamic> back to Map<DateTime, String> from JSON
+Map<DateTime, String> _dateTimeStringMapFromJson(Map<String, dynamic> json) {
+  return json.map((key, value) {
+    // Parse ISO 8601 string key back to DateTime
+    final dateTimeKey = DateTime.parse(key);
+    // Value is already a string
+    return MapEntry(dateTimeKey, value as String);
+  });
+}
+
 @HiveType(typeId: 0) // Keep typeId 0 for Habit
+@JsonSerializable() // Added for JSON serialization
 class Habit extends HiveObject {
   @HiveField(0)
   final String id;
@@ -15,6 +68,10 @@ class Habit extends HiveObject {
   // Key: Date (normalized to midnight UTC for consistency)
   // Value: HabitStatus enum
   @HiveField(2)
+  @JsonKey(
+    toJson: _dateTimeHabitStatusMapToJson, // Use specific toJson helper
+    fromJson: _dateTimeHabitStatusMapFromJson,
+  )
   final Map<DateTime, HabitStatus> dateStatus;
 
   // Add target streak (optional, default to 21 as per user request)
@@ -25,6 +82,10 @@ class Habit extends HiveObject {
   // Key: Date (normalized to midnight UTC)
   // Value: Note string
   @HiveField(4)
+  @JsonKey(
+    toJson: _dateTimeStringMapToJson, // Use specific toJson helper
+    fromJson: _dateTimeStringMapFromJson,
+  )
   final Map<DateTime, String> notes;
 
   @HiveField(5)
@@ -73,6 +134,12 @@ class Habit extends HiveObject {
     this.reminderScheduleType = 'weekly', // Default to weekly
     this.reminderSpecificDateTime, // Default to null
   });
+
+  // Factory constructor for JSON deserialization
+  factory Habit.fromJson(Map<String, dynamic> json) => _$HabitFromJson(json);
+
+  // Method for JSON serialization
+  Map<String, dynamic> toJson() => _$HabitToJson(this);
 
   // Helper to get status for a specific date (defaults to none)
   HabitStatus getStatusForDate(DateTime date) {

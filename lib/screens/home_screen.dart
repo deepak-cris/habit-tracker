@@ -23,6 +23,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../services/notification_service.dart';
 import 'premium_screen.dart'; // Import PremiumScreen
 import 'about_screen.dart'; // Import AboutScreen
+import '../services/backup_service.dart'; // Import BackupService
 
 // --- Habit State Management ---
 final habitProvider =
@@ -464,23 +465,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             ListTile(
               leading: const Icon(Icons.file_upload_outlined),
               title: const Text('Import Data'),
-              onTap: () {
+              onTap: () async {
+                // Make async
                 Navigator.pop(context); // Close drawer
-                print("Import Data tapped - Not implemented yet.");
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Import Data coming soon!')),
-                );
+                // Call the import function from the service
+                await ref.read(backupServiceProvider).importData(context);
               },
             ),
             ListTile(
               leading: const Icon(Icons.file_download_outlined),
               title: const Text('Export Data'),
-              onTap: () {
+              onTap: () async {
+                // Make async
                 Navigator.pop(context); // Close drawer
-                print("Export Data tapped - Not implemented yet.");
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Export Data coming soon!')),
-                );
+                // Call the export function from the service
+                await ref.read(backupServiceProvider).exportData(context);
               },
             ),
             ListTile(

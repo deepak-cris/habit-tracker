@@ -1,6 +1,13 @@
 // Note: Achievements are predefined, so they don't need Hive persistence directly.
 // We only need to store the IDs of the *unlocked* achievements.
 
+import 'package:json_annotation/json_annotation.dart'; // Added
+
+part 'achievement.g.dart'; // Added for JSON generation
+
+@JsonSerializable(
+  explicitToJson: true,
+) // Added, explicitToJson for the criteria map
 class Achievement {
   final String id; // e.g., "7_day_streak", "30_completions"
   final String name;
@@ -16,6 +23,13 @@ class Achievement {
     required this.iconCodePoint,
     required this.criteria,
   });
+
+  // Factory constructor for JSON deserialization
+  factory Achievement.fromJson(Map<String, dynamic> json) =>
+      _$AchievementFromJson(json);
+
+  // Method for JSON serialization
+  Map<String, dynamic> toJson() => _$AchievementToJson(this);
 }
 
 // --- Predefined Achievements List ---

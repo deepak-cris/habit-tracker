@@ -1,0 +1,18 @@
+# build.yaml configuration
+# See https://github.com/dart-lang/build/blob/master/build_config/README.md
+
+targets:
+  $default:
+    builders:
+      # Configure json_serializable
+      # The builder key is typically just the package name
+      json_serializable:
+        options:
+          # Tells the builder to explicitly call toJson methods on nested objects.
+          # This is often needed when working with complex nested classes or freezed.
+          explicit_to_json: true
+          # include_if_null: false # Optional: Set to false if you want to omit null values from JSON
+      # Configure freezed if needed (usually defaults are fine)
+      # freezed:
+      #   options:
+      #     # ... freezed options
