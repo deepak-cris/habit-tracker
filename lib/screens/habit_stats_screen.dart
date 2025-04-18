@@ -13,11 +13,16 @@ import '../widgets/detail_cards/status_pie_chart_card.dart'; // Import the pie c
 // Renamed class
 class HabitStatsScreen extends StatefulWidget {
   final Habit habit;
+  final bool showAppBar; // Add optional parameter
 
-  const HabitStatsScreen({super.key, required this.habit});
+  const HabitStatsScreen({
+    super.key,
+    required this.habit,
+    this.showAppBar = true, // Default to true
+  });
 
   @override
-  State<HabitStatsScreen> createState() => _HabitStatsScreenState(); // Renamed state class
+  State<HabitStatsScreen> createState() => _HabitStatsScreenState();
 }
 
 // Enum for Date Range Options - Keep as is or move to utils if used elsewhere
@@ -87,34 +92,46 @@ class _HabitStatsScreenState extends State<HabitStatsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.habit.name), // Keep habit name in title
-        backgroundColor: Colors.teal, // Keep theme consistent
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-      ),
-      body: ListView(
-        // Use ListView for scrollable content
-        padding: const EdgeInsets.all(16.0),
-        children: [
-          _buildDateFilter(),
-          const SizedBox(height: 20),
-          _buildPieChartCard(), // 1. Status Distribution
-          const SizedBox(height: 16),
-          _buildBestStreaksCard(), // 2. Best Streaks
-          const SizedBox(height: 16),
-          _buildHabitStrengthCard(), // 3. Habit Strength
-          const SizedBox(height: 16),
-          _buildHabitStrengthProgressCard(), // 4. Habit Strength Progress
-          const SizedBox(height: 16),
-          _buildHistoryCard(), // 5. History
-          // Punch card already removed
-        ],
-      ),
+    // Build the main content (ListView)
+    Widget bodyContent = ListView(
+      padding: const EdgeInsets.all(16.0),
+      children: [
+        _buildDateFilter(),
+        const SizedBox(height: 20),
+        _buildPieChartCard(), // 1. Status Distribution
+        const SizedBox(height: 16),
+        _buildBestStreaksCard(), // 2. Best Streaks
+        const SizedBox(height: 16),
+        _buildHabitStrengthCard(), // 3. Habit Strength
+        const SizedBox(height: 16),
+        _buildHabitStrengthProgressCard(), // 4. Habit Strength Progress
+        const SizedBox(height: 16),
+        _buildHistoryCard(), // 5. History
+        // Punch card already removed
+      ],
     );
+
+    // Conditionally wrap with Scaffold and AppBar
+    if (widget.showAppBar) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(widget.habit.name),
+          backgroundColor: Colors.teal,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ),
+        body: bodyContent,
+      );
+    } else {
+      // If AppBar is not shown, just return the body content
+      // Add a background color to match the other tabs if needed
+      return Container(
+        color: Colors.grey[100], // Match background of other tabs
+        child: bodyContent,
+      );
+    }
   }
 
   // Widget for the Date Range Filter UI

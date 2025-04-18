@@ -6,8 +6,10 @@ import '../models/habit.dart';
 import '../models/habit_status.dart';
 import 'home_screen.dart'; // Import habitProvider (needed for potential actions)
 import 'add_edit_habit_screen.dart'; // Import AddEditHabitScreen
+import 'habit_stats_screen.dart'; // Import HabitStatsScreen
 
-// Reverted to the version with CALENDAR and DETAILS tabs
+// Removed individual graph card imports
+
 class HabitDetailScreen extends ConsumerStatefulWidget {
   final Habit habit;
 
@@ -130,7 +132,7 @@ class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
         // If habit is found, build the main UI
         return DefaultTabController(
           initialIndex: 0, // Start on CALENDAR tab
-          length: 2, // Only CALENDAR and DETAILS
+          length: 3, // CALENDAR, GRAPHS, DETAILS
           child: Scaffold(
             appBar: AppBar(
               title: Text(
@@ -170,7 +172,11 @@ class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
                 ),
               ],
               bottom: const TabBar(
-                tabs: [Tab(text: 'CALENDAR'), Tab(text: 'DETAILS')],
+                tabs: [
+                  Tab(text: 'CALENDAR'),
+                  Tab(text: 'GRAPHS'), // Added GRAPHS tab
+                  Tab(text: 'DETAILS'),
+                ],
                 labelColor: Colors.white,
                 indicatorColor: Colors.white,
                 unselectedLabelColor: Colors.white70,
@@ -179,6 +185,7 @@ class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
             body: TabBarView(
               children: [
                 _buildCalendarTab(liveHabit), // Pass live habit
+                _buildGraphsTab(liveHabit), // Added Graphs Tab View
                 _buildDetailsTab(liveHabit), // Pass live habit
               ],
             ),
@@ -662,6 +669,13 @@ class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
     );
   }
   // --- End Add Note Dialog ---
+
+  // Builds the Graphs Tab - Now returns HabitStatsScreen directly
+  Widget _buildGraphsTab(Habit habit) {
+    // Return the HabitStatsScreen widget, passing the habit
+    // and telling it *not* to show its own AppBar
+    return HabitStatsScreen(habit: habit, showAppBar: false);
+  }
 
   // Builds the Details Tab
   Widget _buildDetailsTab(Habit habit) {

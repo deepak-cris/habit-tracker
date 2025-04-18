@@ -141,8 +141,8 @@ class _HabitCardState extends ConsumerState<HabitCard> {
       ]);
     }
 
-    // Always add Streak Info
-    columnChildren.add(_buildStreakInfo(habit));
+    // Add the combined bottom row (streak info + action icons)
+    columnChildren.add(_buildCombinedBottomRow(context, habit));
 
     // Wrap the main content Column in GestureDetector for navigation
     // Exclude the calendar area from this tap target later if needed,
@@ -616,16 +616,25 @@ class _HabitCardState extends ConsumerState<HabitCard> {
   }
   // --- End Streak Calculation ---
 
-  // Helper method to build the streak/completion info row
-  Widget _buildStreakInfo(Habit habit) {
+  // --- Helper method to build the combined bottom row (Streak + Actions) ---
+  Widget _buildCombinedBottomRow(BuildContext context, Habit habit) {
     final currentStreak = _calculateCurrentStreak(habit.dateStatus);
     final longestStreak = _calculateLongestStreak(habit.dateStatus);
     final targetCompletions = habit.targetStreak;
 
+    // Define icon color and size for consistency
+    final Color actionIconColor =
+        Theme.of(context).colorScheme.primary; // Use primary color
+    const double actionIconSize = 22.0; // Slightly smaller icons
+    const EdgeInsets iconPadding = EdgeInsets.symmetric(
+      horizontal: 6.0,
+    ); // Padding around icons
+
     return Padding(
-      padding: const EdgeInsets.only(top: 8.0),
+      padding: const EdgeInsets.only(top: 12.0), // Add padding above the row
       child: Row(
         children: [
+          // Streak Info (Left Aligned)
           const Icon(
             Icons.local_fire_department_outlined,
             size: 16,
@@ -636,17 +645,96 @@ class _HabitCardState extends ConsumerState<HabitCard> {
             '$currentStreak',
             style: const TextStyle(fontSize: 12, color: Colors.grey),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12), // Reduced spacing
           const Icon(Icons.star_border, size: 16, color: Colors.amber),
           const SizedBox(width: 4),
           Text(
             '$longestStreak / $targetCompletions',
             style: const TextStyle(fontSize: 12, color: Colors.grey),
           ),
+
+          // Spacer to push icons to the right
+          const Spacer(),
+
+          // Action Icons (Right Aligned - Reordered)
+          IconButton(
+            icon: Icon(
+              Icons.edit_outlined,
+              color: actionIconColor,
+              size: actionIconSize,
+            ),
+            tooltip: 'Edit Habit',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => AddEditHabitScreen(habit: habit),
+                ),
+              );
+            },
+            padding: iconPadding,
+            constraints: const BoxConstraints(),
+            splashRadius: 20,
+          ),
+          IconButton(
+            icon: Icon(
+              Icons.bar_chart_outlined,
+              color: actionIconColor,
+              size: actionIconSize,
+            ),
+            tooltip: 'View Statistics',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => HabitStatsScreen(habit: habit),
+                ),
+              );
+            },
+            padding: iconPadding,
+            constraints: const BoxConstraints(),
+            splashRadius: 20,
+          ),
+          IconButton(
+            icon: Icon(
+              Icons.notifications_active_outlined,
+              color: actionIconColor,
+              size: actionIconSize,
+            ),
+            tooltip: 'Reminders',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => HabitRemindersScreen(habit: habit),
+                ),
+              );
+            },
+            padding: iconPadding,
+            constraints: const BoxConstraints(),
+            splashRadius: 20,
+          ),
+          // Arrow Icon (Moved to the end)
+          IconButton(
+            icon: Icon(
+              Icons.arrow_forward_ios, // Changed icon
+              color: actionIconColor,
+              size: actionIconSize - 2, // Slightly smaller arrow
+            ),
+            // Removed tooltip
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => HabitDetailScreen(habit: habit),
+                ),
+              );
+            },
+            padding: iconPadding,
+            constraints: const BoxConstraints(),
+            splashRadius: 20,
+          ),
         ],
       ),
     );
   }
+  // --- End Combined Bottom Row ---
 
   // --- Add Note Dialog ---
   void _showAddNoteDialog(
