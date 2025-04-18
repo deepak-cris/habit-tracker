@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../models/habit.dart';
 import '../models/habit_status.dart';
 import '../screens/home_screen.dart'; // For habitProvider
+import '../utils/habit_utils.dart'; // Import habit utils for normalizeDate
 import '../screens/habit_detail_screen.dart'; // Import the detail screen
 import '../screens/add_edit_habit_screen.dart'; // Import for Edit navigation
 import '../screens/habit_reminders_screen.dart'; // Import for Reminders navigation
@@ -479,53 +480,107 @@ class _HabitCardState extends ConsumerState<HabitCard> {
 
   // Helper method to build the action buttons row
   Widget _buildActionButtons() {
-    final dateForAction = _selectedDate;
+    final dateForAction = _selectedDate; // Already normalized in onTap
     final habitNotifier = ref.read(habitProvider.notifier);
+    // Get normalized dates for comparison
+    final habitStartDate = normalizeDate(widget.habit.startDate);
+    final today = normalizeDate(DateTime.now());
 
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      decoration: BoxDecoration(
-        color: Colors.teal.shade100,
-        borderRadius: BorderRadius.circular(8.0),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildActionButton(Icons.check_circle, 'DONE', Colors.green, () {
+    // Determine if the selected date is valid for actions
+    final bool isDateValid =
+        !dateForAction.isAfter(today) &&
+        !dateForAction.isBefore(habitStartDate);
+
+    // Build the action buttons row first
+    final actionButtonRow = Row(
+      mainAxisAlignment: MainAxisAlignment.spaceAround,
+      children: [
+        _buildActionButton(
+          Icons.check_circle,
+          'DONE',
+          Colors.green,
+          isDateValid,
+          () {
             habitNotifier.updateStatus(
               widget.habit.id,
               dateForAction,
               HabitStatus.done,
             );
             setState(() => _isExpanded = false);
-          }),
-          _buildVerticalDivider(),
-          _buildActionButton(Icons.cancel, 'FAIL', Colors.red, () {
-            habitNotifier.updateStatus(
-              widget.habit.id,
-              dateForAction,
-              HabitStatus.fail,
-            );
-            setState(() => _isExpanded = false);
-          }),
-          _buildVerticalDivider(),
-          _buildActionButton(Icons.skip_next, 'SKIP', Colors.orange, () {
+          },
+        ),
+        _buildVerticalDivider(),
+        _buildActionButton(Icons.cancel, 'FAIL', Colors.red, isDateValid, () {
+          habitNotifier.updateStatus(
+            widget.habit.id,
+            dateForAction,
+            HabitStatus.fail,
+          );
+          setState(() => _isExpanded = false);
+        }),
+        _buildVerticalDivider(),
+        _buildActionButton(
+          Icons.skip_next,
+          'SKIP',
+          Colors.orange,
+          isDateValid,
+          () {
             habitNotifier.updateStatus(
               widget.habit.id,
               dateForAction,
               HabitStatus.skip,
             );
             setState(() => _isExpanded = false);
-          }),
-          _buildVerticalDivider(),
-          _buildActionButton(Icons.clear, 'CLEAR', Colors.grey, () {
-            habitNotifier.updateStatus(
-              widget.habit.id,
-              dateForAction,
-              HabitStatus.none,
-            );
-            setState(() => _isExpanded = false);
-          }),
+          },
+        ),
+        _buildVerticalDivider(),
+        _buildActionButton(Icons.clear, 'CLEAR', Colors.grey, isDateValid, () {
+          habitNotifier.updateStatus(
+            widget.habit.id,
+            dateForAction,
+            HabitStatus.none,
+          );
+          setState(() => _isExpanded = false);
+        }),
+      ],
+    );
+
+    // Conditionally add the info note above the buttons if the date is invalid
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        vertical: 8.0,
+        horizontal: 8.0,
+      ), // Add horizontal padding
+      decoration: BoxDecoration(
+        color:
+            isDateValid
+                ? Colors.teal.shade100
+                : Colors.grey.shade300, // Change background if invalid
+        borderRadius: BorderRadius.circular(8.0),
+      ),
+      child: Column(
+        // Use Column to stack note and buttons
+        children: [
+          if (!isDateValid) // Show note only if date is invalid
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    size: 14,
+                    color: Colors.grey.shade700,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Marking allowed from start date to today only.',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                  ),
+                ],
+              ),
+            ),
+          actionButtonRow, // Add the row of buttons
         ],
       ),
     );
@@ -535,19 +590,25 @@ class _HabitCardState extends ConsumerState<HabitCard> {
     IconData icon,
     String label,
     Color color,
-    VoidCallback onPressed,
+    bool enabled, // Add enabled flag
+    VoidCallback? onPressed, // Make onPressed nullable
   ) {
+    // Use the enabled flag to determine the effective onPressed callback
+    final VoidCallback? effectiveOnPressed = enabled ? onPressed : null;
+    // Adjust color if disabled
+    final Color effectiveColor = enabled ? color : Colors.grey.shade400;
+
     return TextButton.icon(
-      icon: Icon(icon, color: color, size: 20),
+      icon: Icon(icon, color: effectiveColor, size: 20),
       label: Text(
         label,
         style: TextStyle(
-          color: color,
+          color: effectiveColor, // Use effective color
           fontSize: 12,
           fontWeight: FontWeight.bold,
         ),
       ),
-      onPressed: onPressed,
+      onPressed: effectiveOnPressed, // Use effective onPressed
       style: TextButton.styleFrom(
         padding: EdgeInsets.zero,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,

@@ -7,6 +7,7 @@ import '../models/habit_status.dart';
 import 'home_screen.dart'; // Import habitProvider (needed for potential actions)
 import 'add_edit_habit_screen.dart'; // Import AddEditHabitScreen
 import 'habit_stats_screen.dart'; // Import HabitStatsScreen
+import '../utils/habit_utils.dart'; // Import for normalizeDate
 
 // Removed individual graph card imports
 
@@ -448,9 +449,19 @@ class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
 
   // Show actions/note for the selected day (Refactored UI)
   void _showDayActions(BuildContext context, Habit habit, DateTime date) {
+    // date is already normalized from _buildCalendarDayCell
     final currentStatus = habit.getStatusForDate(date);
     final currentNote = habit.getNoteForDate(date);
     final habitNotifier = ref.read(habitProvider.notifier);
+
+    // Get normalized dates for validation
+    final habitStartDate = normalizeDate(
+      habit.startDate,
+    ); // Ensure start date is normalized
+    final today = normalizeDate(DateTime.now());
+    // Determine if the selected date is valid for actions
+    final bool isDateValid =
+        !date.isAfter(today) && !date.isBefore(habitStartDate);
 
     showModalBottomSheet(
       context: context,
@@ -475,7 +486,30 @@ class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 24), // Increased spacing
+              const SizedBox(height: 16), // Reduced spacing before note/buttons
+              // Conditionally display info note if date is invalid
+              if (!isDateValid)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        size: 16,
+                        color: Colors.grey.shade700,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Marking allowed from start date to today only.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               // Action Buttons - Use Row with Expanded
               Row(
                 mainAxisAlignment:
@@ -488,6 +522,7 @@ class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
                       'DONE',
                       Colors.green,
                       currentStatus == HabitStatus.done,
+                      isDateValid, // Pass validation result
                       () {
                         habitNotifier.updateStatus(
                           habit.id,
@@ -505,6 +540,7 @@ class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
                       'FAIL',
                       Colors.red,
                       currentStatus == HabitStatus.fail,
+                      isDateValid, // Pass validation result
                       () {
                         habitNotifier.updateStatus(
                           habit.id,
@@ -522,6 +558,7 @@ class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
                       'SKIP',
                       Colors.orange,
                       currentStatus == HabitStatus.skip,
+                      isDateValid, // Pass validation result
                       () {
                         habitNotifier.updateStatus(
                           habit.id,
@@ -539,6 +576,7 @@ class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
                       'CLEAR',
                       Colors.grey,
                       currentStatus == HabitStatus.none,
+                      isDateValid, // Pass validation result
                       () {
                         habitNotifier.updateStatus(
                           habit.id,
@@ -587,8 +625,14 @@ class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
     String label,
     Color color,
     bool isSelected,
-    VoidCallback onPressed,
+    bool enabled, // Add enabled flag
+    VoidCallback? onPressed, // Make onPressed nullable
   ) {
+    // Determine effective onPressed based on enabled status
+    final VoidCallback? effectiveOnPressed = enabled ? onPressed : null;
+    // Adjust color if disabled
+    final Color effectiveColor = enabled ? color : Colors.grey.shade400;
+
     // Use ElevatedButton for selected, OutlinedButton for others
     return isSelected
         ? ElevatedButton.icon(
@@ -601,10 +645,10 @@ class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
             label,
             style: const TextStyle(fontSize: 11, color: Colors.white),
           ),
-          onPressed: onPressed,
+          onPressed: effectiveOnPressed, // Use effective onPressed
           style: ElevatedButton.styleFrom(
-            backgroundColor: color, // Main status color
-            foregroundColor: Colors.white, // Text/Icon color
+            backgroundColor: effectiveColor, // Use effective color
+            foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
             textStyle: const TextStyle(fontWeight: FontWeight.bold),
             shape: RoundedRectangleBorder(
@@ -616,13 +660,18 @@ class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
           icon: Icon(
             icon,
             size: 18,
-            color: color,
-          ), // Colored icon on outlined button
-          label: Text(label, style: TextStyle(fontSize: 11, color: color)),
-          onPressed: onPressed,
+            color: effectiveColor, // Use effective color
+          ),
+          label: Text(
+            label,
+            style: TextStyle(fontSize: 11, color: effectiveColor),
+          ), // Use effective color
+          onPressed: effectiveOnPressed, // Use effective onPressed
           style: OutlinedButton.styleFrom(
-            foregroundColor: color, // Text/Icon color
-            side: BorderSide(color: color.withOpacity(0.5)), // Border color
+            foregroundColor: effectiveColor, // Text/Icon color
+            side: BorderSide(
+              color: effectiveColor.withOpacity(0.5),
+            ), // Border color
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
             textStyle: const TextStyle(fontWeight: FontWeight.bold),
             shape: RoundedRectangleBorder(

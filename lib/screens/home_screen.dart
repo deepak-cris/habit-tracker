@@ -372,6 +372,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   int _currentTabIndex = 1;
+  // State for FAB position using right/bottom offsets
+  double _fabRightOffset = 20.0;
+  double _fabBottomOffset = 20.0;
+  final double _fabSize = 56.0; // Standard FAB size
 
   @override
   void initState() {
@@ -390,6 +394,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  // Helper to build the FAB widget itself
+  Widget _buildFab() {
+    return FloatingActionButton(
+      backgroundColor: Colors.pink,
+      foregroundColor: Colors.white,
+      onPressed: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (context) => const AddEditHabitScreen()),
+        );
+      },
+      child: const Icon(Icons.add),
+    );
   }
 
   @override
@@ -513,26 +531,54 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [_buildRewardsTab(), _buildHabitsTab(), _buildGraphsTab()],
-      ),
-      floatingActionButton:
-          _currentTabIndex ==
-                  1 // Show only on HABITS tab
-              ? FloatingActionButton(
-                backgroundColor: Colors.pink,
-                foregroundColor: Colors.white,
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => const AddEditHabitScreen(),
-                    ),
-                  );
+      // Wrap body in a Stack to allow positioned FAB
+      body: Stack(
+        children: [
+          TabBarView(
+            controller: _tabController,
+            children: [
+              _buildRewardsTab(),
+              _buildHabitsTab(),
+              _buildGraphsTab(),
+            ],
+          ),
+          // Positioned Draggable FAB
+          if (_currentTabIndex == 1) // Show only on HABITS tab
+            Positioned(
+              right: _fabRightOffset, // Use right offset
+              bottom: _fabBottomOffset, // Use bottom offset
+              child: Draggable<bool>(
+                // Data type doesn't matter much here
+                data: true,
+                feedback: _buildFab(), // Show the button itself while dragging
+                childWhenDragging:
+                    const SizedBox.shrink(), // Hide original while dragging
+                onDragEnd: (details) {
+                  final Size screenSize = MediaQuery.of(context).size;
+                  // Calculate new offsets based on global drop position
+                  // Subtracting from total width/height gives right/bottom offsets
+                  // Add some clamping to prevent dragging off-screen (optional but recommended)
+                  setState(() {
+                    _fabRightOffset = (screenSize.width -
+                            details.offset.dx -
+                            _fabSize)
+                        .clamp(0.0, screenSize.width - _fabSize); // Clamp right
+                    _fabBottomOffset = (screenSize.height -
+                            details.offset.dy -
+                            _fabSize)
+                        .clamp(
+                          0.0,
+                          screenSize.height - _fabSize,
+                        ); // Clamp bottom
+                  });
                 },
-                child: const Icon(Icons.add),
-              )
-              : null,
+                child: _buildFab(), // The actual FAB widget to drag
+              ),
+            ),
+        ],
+      ),
+      // Remove the original floatingActionButton property
+      // floatingActionButton: null,
     );
   }
 
