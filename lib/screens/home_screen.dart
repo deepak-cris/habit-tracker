@@ -468,8 +468,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               onTap: () async {
                 // Make async
                 Navigator.pop(context); // Close drawer
-                // Call the import function from the service
+                // Call the import function
                 await ref.read(backupServiceProvider).importData(context);
+                // --- Add this block to refresh UI after import ---
+                if (context.mounted) {
+                  ref.invalidate(habitProvider);
+                  ref.invalidate(pointsProvider);
+                  ref.invalidate(rewardProvider);
+                  ref.invalidate(unlockedAchievementsProvider);
+                  ref.invalidate(claimedRewardProvider);
+                }
+                // --- End of added block ---
               },
             ),
             ListTile(
