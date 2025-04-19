@@ -116,6 +116,9 @@ class Habit extends HiveObject {
   @HiveField(13) // New field for specific date/time
   final DateTime? reminderSpecificDateTime; // Used only if type is 'specific_date'
 
+  @HiveField(14) // New field for ordering
+  final int orderIndex;
+
   // TODO: Add fields for flexible schedule if needed (e.g., frequency, interval)
 
   Habit({
@@ -133,6 +136,7 @@ class Habit extends HiveObject {
     this.reminderTimes, // Add reminderTimes to constructor
     this.reminderScheduleType = 'weekly', // Default to weekly
     this.reminderSpecificDateTime, // Default to null
+    this.orderIndex = 0, // Make optional with default value
   });
 
   // Factory constructor for JSON deserialization
@@ -151,5 +155,126 @@ class Habit extends HiveObject {
   String getNoteForDate(DateTime date) {
     final normalizedDate = DateTime.utc(date.year, date.month, date.day);
     return notes[normalizedDate] ?? '';
+  }
+
+  // --- Streak Calculation Logic ---
+  int calculateCurrentStreak() {
+    int streak = 0;
+    DateTime checkDate = DateTime.utc(
+      DateTime.now().year,
+      DateTime.now().month,
+      DateTime.now().day,
+    );
+    while (true) {
+      // Use the instance's dateStatus map directly
+      final status = dateStatus[checkDate];
+      if (status == HabitStatus.done) {
+        streak++;
+        checkDate = checkDate.subtract(const Duration(days: 1));
+      } else if (status == HabitStatus.skip) {
+        // Skip days maintain the streak
+        checkDate = checkDate.subtract(const Duration(days: 1));
+      } else {
+        // Any other status (none, fail) breaks the streak
+        break;
+      }
+    }
+    return streak;
+  }
+
+  int calculateLongestStreak() {
+    // Use the instance's dateStatus map directly
+    if (dateStatus.isEmpty) return 0;
+
+    int longestStreak = 0;
+    int currentStreak = 0;
+    // Sort the dates to process them chronologically
+    final sortedDates = dateStatus.keys.toList()..sort();
+
+    DateTime? previousDate; // Keep track of the last non-skipped day
+
+    for (final date in sortedDates) {
+      final status = dateStatus[date];
+
+      if (status == HabitStatus.done) {
+        if (previousDate == null) {
+          // First 'done' day starts a streak of 1
+          currentStreak = 1;
+        } else {
+          final difference = date.difference(previousDate).inDays;
+          if (difference == 1) {
+            // Consecutive 'done' day
+            currentStreak++;
+          } else {
+            // Check if the gap consists only of 'skip' days
+            bool gapIsOnlySkips = true;
+            for (int i = 1; i < difference; i++) {
+              DateTime gapDate = previousDate.add(Duration(days: i));
+              if (dateStatus[gapDate] != HabitStatus.skip) {
+                gapIsOnlySkips = false;
+                break;
+              }
+            }
+            // If gap is only skips, continue the streak, otherwise reset to 1
+            currentStreak = gapIsOnlySkips ? currentStreak + 1 : 1;
+          }
+        }
+      } else if (status != HabitStatus.skip) {
+        // 'fail' or 'none' resets the current streak
+        currentStreak = 0;
+      }
+      // For 'skip' days, the current streak count is maintained but not incremented
+
+      // Update the longest streak found so far
+      if (currentStreak > longestStreak) {
+        longestStreak = currentStreak;
+      }
+
+      // Update previousDate only if the current day was not skipped
+      if (status != HabitStatus.skip) {
+        previousDate = date;
+      }
+    }
+    return longestStreak;
+  }
+
+  // --- End Streak Calculation ---
+
+  // copyWith method for easier updates
+  Habit copyWith({
+    String? id,
+    String? name,
+    Map<DateTime, HabitStatus>? dateStatus,
+    Map<DateTime, String>? notes,
+    String? description,
+    List<String>? reasons,
+    DateTime? startDate,
+    String? scheduleType,
+    List<bool>? selectedDays,
+    int? targetStreak,
+    bool? isMastered,
+    List<Map<String, dynamic>>? reminderTimes,
+    String? reminderScheduleType,
+    DateTime? reminderSpecificDateTime,
+    int? orderIndex,
+  }) {
+    return Habit(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      dateStatus: dateStatus ?? this.dateStatus,
+      notes: notes ?? this.notes,
+      description: description ?? this.description,
+      reasons: reasons ?? this.reasons,
+      startDate: startDate ?? this.startDate,
+      scheduleType: scheduleType ?? this.scheduleType,
+      selectedDays: selectedDays ?? this.selectedDays,
+      targetStreak: targetStreak ?? this.targetStreak,
+      isMastered: isMastered ?? this.isMastered,
+      reminderTimes: reminderTimes ?? this.reminderTimes,
+      reminderScheduleType: reminderScheduleType ?? this.reminderScheduleType,
+      reminderSpecificDateTime:
+          reminderSpecificDateTime ?? this.reminderSpecificDateTime,
+      orderIndex: orderIndex ?? this.orderIndex,
+    );
   }
 }

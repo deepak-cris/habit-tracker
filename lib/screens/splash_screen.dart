@@ -29,7 +29,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
     // Use a fixed duration for animations, independent of navigation timer
     _controller = AnimationController(
-      duration: const Duration(seconds: 3), // Animation duration
+      duration: const Duration(seconds: 5), // Animation duration changed to 5
       vsync: this,
     );
 

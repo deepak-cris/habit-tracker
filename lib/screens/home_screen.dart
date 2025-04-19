@@ -45,19 +45,26 @@ class HabitNotifier extends StateNotifier<AsyncValue<List<Habit>>> {
     }
     try {
       final box = await Hive.openBox<Habit>(_habitBoxName);
-      final loadedHabits = box.values.toList();
+      List<Habit> loadedHabits = box.values.toList();
       List<Habit> habitsToSet = [];
 
       if (loadedHabits.isEmpty) {
-        print("No habits found in Hive. Adding default dummy habit.");
-        habitsToSet = _initialHabits;
-        for (final habit in habitsToSet) {
-          await _persistHabit(habit);
-          NotificationService().scheduleHabitReminders(habit);
+        print("No habits found in Hive. Adding default dummy habits.");
+        // Assign initial orderIndex when adding defaults
+        for (int i = 0; i < _initialHabits.length; i++) {
+          final habitWithIndex = _initialHabits[i].copyWith(orderIndex: i);
+          habitsToSet.add(habitWithIndex);
+          await _persistHabit(habitWithIndex);
+          NotificationService().scheduleHabitReminders(habitWithIndex);
         }
       } else {
+        // Sort loaded habits by orderIndex
+        loadedHabits.sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
         habitsToSet = loadedHabits;
-        print("Loaded ${habitsToSet.length} habits from Hive.");
+        print(
+          "Loaded and sorted ${habitsToSet.length} habits from Hive by orderIndex.",
+        );
+        // Reschedule reminders just in case
         for (final habit in habitsToSet) {
           NotificationService().scheduleHabitReminders(habit);
         }
@@ -136,9 +143,14 @@ class HabitNotifier extends StateNotifier<AsyncValue<List<Habit>>> {
     List<Map<String, dynamic>>? reminderTimes,
     DateTime? reminderSpecificDateTime,
   }) async {
+    // Determine the next order index
+    final currentHabits = state.asData?.value ?? [];
+    final nextOrderIndex = currentHabits.length;
+
     final newHabit = Habit(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       name: name,
+      orderIndex: nextOrderIndex, // Assign the next index
       description: description,
       reasons: reasons ?? [],
       dateStatus: {},
@@ -358,6 +370,47 @@ class HabitNotifier extends StateNotifier<AsyncValue<List<Habit>>> {
       }
     });
   }
+
+  void reorderHabits(int oldIndex, int newIndex) {
+    state.whenData((habits) {
+      // Adjust index if item is moved downwards
+      if (newIndex > oldIndex) {
+        newIndex -= 1;
+      }
+      final List<Habit> updatedList = List.from(habits);
+      final List<Habit> reorderedList = List.from(habits);
+      final Habit item = reorderedList.removeAt(oldIndex);
+      reorderedList.insert(newIndex, item);
+
+      // Update orderIndex for all habits and prepare for persistence
+      final List<Habit> habitsToPersist = [];
+      for (int i = 0; i < reorderedList.length; i++) {
+        final updatedHabit = reorderedList[i].copyWith(orderIndex: i);
+        reorderedList[i] = updatedHabit; // Update list for state
+        habitsToPersist.add(updatedHabit); // Add to list for saving
+      }
+
+      state = AsyncValue.data(reorderedList);
+
+      // Persist all updated habits
+      _persistReorderedHabits(habitsToPersist);
+    });
+  }
+
+  // Helper function to persist the reordered list
+  Future<void> _persistReorderedHabits(List<Habit> habits) async {
+    try {
+      final box = await Hive.openBox<Habit>(_habitBoxName);
+      // Use a map for efficient batch update
+      final Map<String, Habit> updates = {
+        for (var habit in habits) habit.id: habit,
+      };
+      await box.putAll(updates);
+      print("Persisted reordered habits to Hive.");
+    } catch (e) {
+      print("Error persisting reordered habits to Hive: $e");
+    }
+  }
 }
 
 // --- HomeScreen Widget ---
@@ -531,54 +584,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ],
         ),
       ),
-      // Wrap body in a Stack to allow positioned FAB
-      body: Stack(
-        children: [
-          TabBarView(
-            controller: _tabController,
-            children: [
-              _buildRewardsTab(),
-              _buildHabitsTab(),
-              _buildGraphsTab(),
-            ],
-          ),
-          // Positioned Draggable FAB
-          if (_currentTabIndex == 1) // Show only on HABITS tab
-            Positioned(
-              right: _fabRightOffset, // Use right offset
-              bottom: _fabBottomOffset, // Use bottom offset
-              child: Draggable<bool>(
-                // Data type doesn't matter much here
-                data: true,
-                feedback: _buildFab(), // Show the button itself while dragging
-                childWhenDragging:
-                    const SizedBox.shrink(), // Hide original while dragging
-                onDragEnd: (details) {
-                  final Size screenSize = MediaQuery.of(context).size;
-                  // Calculate new offsets based on global drop position
-                  // Subtracting from total width/height gives right/bottom offsets
-                  // Add some clamping to prevent dragging off-screen (optional but recommended)
-                  setState(() {
-                    _fabRightOffset = (screenSize.width -
-                            details.offset.dx -
-                            _fabSize)
-                        .clamp(0.0, screenSize.width - _fabSize); // Clamp right
-                    _fabBottomOffset = (screenSize.height -
-                            details.offset.dy -
-                            _fabSize)
-                        .clamp(
-                          0.0,
-                          screenSize.height - _fabSize,
-                        ); // Clamp bottom
-                  });
-                },
-                child: _buildFab(), // The actual FAB widget to drag
-              ),
-            ),
-        ],
+      // Use TabBarView directly as the body
+      body: TabBarView(
+        controller: _tabController,
+        children: [_buildRewardsTab(), _buildHabitsTab(), _buildGraphsTab()],
       ),
-      // Remove the original floatingActionButton property
-      // floatingActionButton: null,
+      // Add the FAB back here using the standard property
+      floatingActionButton:
+          _currentTabIndex == 1
+              ? _buildFab()
+              : null, // Show FAB only on the Habits tab
     );
   }
 
@@ -603,12 +618,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             ),
           );
         }
-        return ListView.builder(
+        // Use ReorderableListView.builder for drag-and-drop
+        return ReorderableListView.builder(
           padding: const EdgeInsets.all(8.0),
           itemCount: habits.length,
           itemBuilder: (context, index) {
             final habit = habits[index];
-            return HabitCard(habit: habit);
+            // IMPORTANT: Each item needs a unique Key for ReorderableListView
+            return HabitCard(key: ValueKey(habit.id), habit: habit);
+          },
+          onReorder: (int oldIndex, int newIndex) {
+            // This callback handles the reordering logic
+            ref.read(habitProvider.notifier).reorderHabits(oldIndex, newIndex);
           },
         );
       },
