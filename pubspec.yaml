@@ -14,6 +14,7 @@ dependencies:
   firebase_core: ^3.0.0 # Updated Firebase Core
   firebase_auth: ^5.0.0 # Updated Firebase Auth
   google_sign_in: ^6.2.3 # Keep this for now, might need update later if conflicts arise
+  cloud_firestore: ^5.0.0 # Added Firestore
   table_calendar: ^3.0.9
   intl: ^0.19.0 # Allow version 0.19.0
   hive: ^2.2.3
@@ -55,3 +56,4 @@ flutter:
   assets:
     - assets/images/google_logo.png
     - assets/images/splash.png # Corrected indentation
+    - assets/manual/

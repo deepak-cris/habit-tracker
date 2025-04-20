@@ -55,8 +55,10 @@ class AboutScreen extends StatelessWidget {
             ), // Improved line spacing
           ),
           const SizedBox(height: 24),
+
           Text(
-            'Developed with Flutter',
+            // Added developer credit
+            'Developed by Deepak',
             style: Theme.of(
               context,
             ).textTheme.bodySmall?.copyWith(color: Colors.grey),

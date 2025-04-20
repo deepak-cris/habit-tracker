@@ -23,6 +23,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../services/notification_service.dart';
 import 'premium_screen.dart'; // Import PremiumScreen
 import 'about_screen.dart'; // Import AboutScreen
+import 'user_manual_screen.dart'; // Import UserManualScreen
 import '../services/backup_service.dart'; // Import BackupService
 import '../services/user_activity_service.dart'; // Import UserActivityService
 
@@ -565,6 +566,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 Navigator.pop(context); // Close drawer
                 // Call the export function from the service
                 await ref.read(backupServiceProvider).exportData(context);
+              },
+            ),
+            ListTile(
+              // Add User Manual option
+              leading: const Icon(
+                Icons.menu_book_outlined,
+              ), // Or Icons.help_outline
+              title: const Text('User Manual'),
+              onTap: () {
+                Navigator.pop(context); // Close drawer
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const UserManualScreen(),
+                  ),
+                );
               },
             ),
             ListTile(
