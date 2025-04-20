@@ -45,8 +45,8 @@ class _PremiumScreenState extends State<PremiumScreen> {
     // upi_pay uses transactionRef, not transactionId
     final String transactionRef = _uuid.v4();
     const String transactionNote = 'Habit Tracker Premium Purchase';
-    //const double amount = 515.43; // Amount from UI
-    const double amount = 1.00;
+    //const double amount = 515.43; // Amount from UI - Keep old comment for reference if needed
+    const double amount = 299; // Updated amount
 
     // Show loading or disable button if needed
     // setState(() => _isProcessing = true); // Example
@@ -288,12 +288,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
           subtitle: '',
           color: Colors.grey,
         ),
-        _buildFeatureTile(
-          icon: Icons.adjust,
-          title: 'Add five targets',
-          subtitle: '',
-          color: Colors.grey,
-        ),
+
         _buildFeatureTile(
           icon: Icons.notifications_active_outlined,
           title: 'Powerful Reminders',
@@ -303,12 +298,6 @@ class _PremiumScreenState extends State<PremiumScreen> {
         _buildFeatureTile(
           icon: Icons.chat_bubble_outline,
           title: 'Motivational Quotes',
-          subtitle: '',
-          color: Colors.grey,
-        ),
-        _buildFeatureTile(
-          icon: Icons.widgets_outlined,
-          title: 'Beautiful widgets',
           subtitle: '',
           color: Colors.grey,
         ),
@@ -324,6 +313,12 @@ class _PremiumScreenState extends State<PremiumScreen> {
             color: primaryColor,
           ),
         ),
+        _buildFeatureTile(
+          icon: Icons.track_changes,
+          title: 'Track unlimited habits',
+          subtitle: 'Monitor all your goals.',
+          color: primaryColor,
+        ),
         const SizedBox(height: 16),
         _buildFeatureTile(
           icon: Icons.card_giftcard,
@@ -332,45 +327,15 @@ class _PremiumScreenState extends State<PremiumScreen> {
           color: primaryColor,
         ),
         _buildFeatureTile(
-          icon: Icons.adjust,
-          title: 'Add unlimited targets',
-          subtitle: 'Challenge yourself further.',
-          color: primaryColor,
-        ),
-        _buildFeatureTile(
-          icon: Icons.track_changes,
-          title: 'Track unlimited habits',
-          subtitle: 'Monitor all your goals.',
+          icon: Icons.ios_share,
+          title: 'Export and Import your data',
+          subtitle: 'Keep your data accessible.',
           color: primaryColor,
         ),
         _buildFeatureTile(
           icon: Icons.edit_calendar_outlined,
           title: 'Track habits with daily values',
           subtitle: '(e.g., water intake, study time)',
-          color: primaryColor,
-        ),
-        _buildFeatureTile(
-          icon: Icons.cloud_upload_outlined,
-          title: 'Automatic backup',
-          subtitle: 'To external storage providers.',
-          color: primaryColor,
-        ),
-        _buildFeatureTile(
-          icon: Icons.pie_chart_outline,
-          title: 'Advanced widgets',
-          subtitle: 'Pie charts and progress charts.',
-          color: primaryColor,
-        ),
-        _buildFeatureTile(
-          icon: Icons.ios_share,
-          title: 'Export your data to CSV',
-          subtitle: 'Keep your data accessible.',
-          color: primaryColor,
-        ),
-        _buildFeatureTile(
-          icon: Icons.pin_outlined,
-          title: 'Secure your data with PIN lock',
-          subtitle: 'Added privacy.',
           color: primaryColor,
         ),
       ],
@@ -484,7 +449,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
               child: Column(
                 children: [
                   Text(
-                    '₹515.43',
+                    '₹299', // Updated amount display
                     style: theme.textTheme.displaySmall?.copyWith(
                       fontWeight: FontWeight.bold,
                       color: primaryColor,

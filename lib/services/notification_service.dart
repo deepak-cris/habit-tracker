@@ -43,7 +43,10 @@ class NotificationService {
 
   // --- Scheduling Logic (using Platform Channel) ---
 
-  Future<void> scheduleHabitReminders(Habit habit) async {
+  Future<void> scheduleHabitReminders(
+    Habit habit, {
+    String? notificationText,
+  }) async {
     // Cancel reminders first (now uses platform channel)
     await cancelHabitReminders(habit.id);
 
@@ -66,6 +69,7 @@ class NotificationService {
         final timestampMillis =
             habit.reminderSpecificDateTime!.millisecondsSinceEpoch;
         String notificationBody =
+            notificationText ??
             'Reminder for: ${habit.name}'; // Simple body for specific date
 
         try {
@@ -127,7 +131,8 @@ class NotificationService {
         );
         final reminderNote = reminderMap['note'] as String?;
         final notificationId = _generateNotificationId(habit.id, i);
-        String notificationBody = 'Time for your habit: ${habit.name}';
+        String notificationBody =
+            notificationText ?? 'Time for your habit: ${habit.name}';
         if (reminderNote != null && reminderNote.isNotEmpty) {
           notificationBody += '\n$reminderNote';
         }

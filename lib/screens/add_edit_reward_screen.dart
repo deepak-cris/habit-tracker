@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/reward.dart';
 import '../providers/reward_provider.dart';
+import 'premium_screen.dart'; // Import PremiumScreen for navigation
 
 class AddEditRewardScreen extends ConsumerStatefulWidget {
   final Reward? reward; // Optional reward for editing
@@ -43,7 +44,8 @@ class _AddEditRewardScreenState extends ConsumerState<AddEditRewardScreen> {
     super.dispose();
   }
 
-  void _saveReward() {
+  // Make async to await addReward result
+  void _saveReward() async {
     if (_formKey.currentState!.validate()) {
       final name = _nameController.text;
       final description = _descriptionController.text;
@@ -72,18 +74,82 @@ class _AddEditRewardScreenState extends ConsumerState<AddEditRewardScreen> {
               widget.reward!.iconCodePoint, // Keep original icon for now
         );
         rewardNotifier.editReward(updatedReward);
+        // Pop immediately after editing
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Reward "$name" updated.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.of(context).pop();
+        }
       } else {
-        // Add new reward
-        rewardNotifier.addReward(
+        // Add new reward - await the result
+        final bool success = await rewardNotifier.addReward(
           name: name,
           description: description.isNotEmpty ? description : null,
           pointCost: pointCost,
           iconCodePoint: null, // Add later
         );
+
+        if (!mounted) return; // Check mount status after async call
+
+        if (success) {
+          // Reward added successfully
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Reward "$name" added.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.of(context).pop(); // Go back after saving
+        } else {
+          // Limit reached, show dialog
+          _showPremiumLimitDialog(context, "reward");
+        }
       }
-      Navigator.of(context).pop(); // Go back after saving
+      // Note: Navigator.pop() is now handled within the success/edit blocks
     }
   }
+
+  // --- Premium Limit Dialog (Copied from AddEditHabitScreen) ---
+  void _showPremiumLimitDialog(BuildContext context, String itemType) {
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: Text(
+            '${itemType[0].toUpperCase()}${itemType.substring(1)} Limit Reached',
+          ),
+          content: Text(
+            'Free accounts are limited to 5 ${itemType}s. Upgrade to Premium to add unlimited ${itemType}s!',
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop(); // Close the dialog
+              },
+            ),
+            TextButton(
+              child: const Text('Go Premium'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop(); // Close the dialog
+                // Navigate to the Premium Screen
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const PremiumScreen(),
+                  ),
+                );
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+  // --- End Premium Limit Dialog ---
 
   @override
   Widget build(BuildContext context) {

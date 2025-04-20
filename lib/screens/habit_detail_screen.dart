@@ -20,6 +20,7 @@ class HabitDetailScreen extends ConsumerStatefulWidget {
   ConsumerState<HabitDetailScreen> createState() => _HabitDetailScreenState();
 }
 
+// Corrected class definition
 class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
   DateTime? _selectedDay = DateTime.now(); // Keep track of selected day
   final List<String> _dayNames = const [

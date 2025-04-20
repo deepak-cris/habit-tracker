@@ -1,19 +1,30 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive/hive.dart';
 import 'package:uuid/uuid.dart'; // For generating unique IDs
 import '../models/reward.dart';
 import 'points_provider.dart'; // To interact with points
 import 'claimed_reward_provider.dart'; // To add claimed rewards
+import '../auth/auth_notifier.dart'; // Import AuthNotifier
+import '../auth/auth_state.dart'; // Import AuthState
+import '../services/user_activity_service.dart'; // Import UserActivityService
 
 final rewardProvider = StateNotifierProvider<RewardNotifier, List<Reward>>((
   ref,
 ) {
-  return RewardNotifier(ref);
+  // Pass AuthProvider and UserActivityService
+  final authState = ref.watch(authProvider);
+  final userActivityService = UserActivityService(); // Or provide it
+  return RewardNotifier(ref, authState, userActivityService);
 });
 
 class RewardNotifier extends StateNotifier<List<Reward>> {
   final Ref _ref; // Keep ref to read other providers
-  RewardNotifier(this._ref) : super([]) {
+  final AuthState _authState; // Store AuthState
+  final UserActivityService _userActivityService; // Store UserActivityService
+
+  RewardNotifier(this._ref, this._authState, this._userActivityService)
+    : super([]) {
     _loadRewards();
   }
 
@@ -52,12 +63,35 @@ class RewardNotifier extends StateNotifier<List<Reward>> {
     }
   }
 
-  void addReward({
+  Future<bool> addReward({
+    // Return Future<bool>
     required String name,
     String? description,
     required int pointCost,
     int? iconCodePoint,
-  }) {
+  }) async {
+    // Make async for user activity check
+    // --- Premium Check ---
+    final user = _authState.maybeWhen(
+      authenticated: (u) => u,
+      orElse: () => null,
+    );
+    if (user == null) {
+      print("User not authenticated. Cannot add reward.");
+      return false; // Indicate failure
+    }
+
+    final userActivity = await _userActivityService.getUserActivity(user.uid);
+    final isPremium = userActivity?.paymentStatus != 'free';
+    final currentRewards = state; // Get current rewards list
+
+    if (!isPremium && currentRewards.length >= 5) {
+      print("Non-premium user limit (5 rewards) reached. Cannot add more.");
+      // TODO: Show UI feedback
+      return false; // Indicate failure due to limit
+    }
+    // --- End Premium Check ---
+
     final newReward = Reward(
       id: _uuid.v4(), // Generate unique ID
       name: name,
@@ -66,7 +100,8 @@ class RewardNotifier extends StateNotifier<List<Reward>> {
       iconCodePoint: iconCodePoint,
     );
     state = [...state, newReward];
-    _saveReward(newReward);
+    await _saveReward(newReward); // Await the save operation
+    return true; // Indicate success
   }
 
   void editReward(Reward updatedReward) {

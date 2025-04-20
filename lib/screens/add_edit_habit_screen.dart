@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../models/habit.dart';
 import 'home_screen.dart'; // To access habitProvider
+import 'premium_screen.dart'; // Import PremiumScreen for navigation
 
 class AddEditHabitScreen extends ConsumerStatefulWidget {
   final Habit? habit;
@@ -100,7 +101,8 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
     }
   }
 
-  void _saveHabit() {
+  // Make _saveHabit async to await the result from addHabit
+  void _saveHabit() async {
     final formState = _formKey.currentState;
     bool isFormValid = formState?.validate() ?? false;
     final name = _nameController.text;
@@ -155,7 +157,8 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
         }
       } else {
         // Adding new habit - reminder fields will use model defaults
-        ref
+        // Await the result and check if it was successful
+        final bool success = await ref
             .read(habitProvider.notifier)
             .addHabit(
               name: name,
@@ -167,24 +170,82 @@ class _AddEditHabitScreenState extends ConsumerState<AddEditHabitScreen> {
               targetStreak: targetStreak,
               // No need to pass reminder fields, they'll get defaults from Habit model
             );
-        if (mounted) {
+
+        if (!mounted)
+          return; // Check if widget is still mounted after async call
+
+        if (success) {
+          // Habit added successfully
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Habit "$name" added.'),
               backgroundColor: Colors.green,
             ),
           );
+          // Pop screen after a short delay
+          Future.delayed(const Duration(milliseconds: 300), () {
+            if (mounted) {
+              Navigator.of(context).pop();
+            }
+          });
+        } else {
+          // Limit reached, show premium dialog
+          _showPremiumLimitDialog(context, "habit");
         }
       }
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) {
-          Navigator.of(context).pop();
-        }
-      });
+      // Only pop if editing was successful (handled inside the 'if (_isEditing)' block)
+      // or if adding was successful (handled inside the 'else' block)
+      // The delay pop for adding is now inside the success check.
+      // If editing, pop immediately after showing snackbar.
+      if (_isEditing) {
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted) {
+            Navigator.of(context).pop();
+          }
+        });
+      }
     } else {
       print("Form validation failed.");
     }
   }
+
+  // --- Premium Limit Dialog ---
+  void _showPremiumLimitDialog(BuildContext context, String itemType) {
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: Text(
+            '${itemType[0].toUpperCase()}${itemType.substring(1)} Limit Reached',
+          ),
+          content: Text(
+            'Free accounts are limited to 5 ${itemType}s. Upgrade to Premium to add unlimited ${itemType}s!',
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop(); // Close the dialog
+              },
+            ),
+            TextButton(
+              child: const Text('Go Premium'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop(); // Close the dialog
+                // Navigate to the Premium Screen
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const PremiumScreen(),
+                  ),
+                );
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+  // --- End Premium Limit Dialog ---
 
   @override
   Widget build(BuildContext context) {

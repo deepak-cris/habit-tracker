@@ -3,10 +3,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'auth_state.dart';
 import 'dart:async'; // Import for StreamSubscription
+import '../services/user_activity_service.dart'; // Import UserActivityService
 
 class AuthNotifier extends StateNotifier<AuthState> {
   final FirebaseAuth _auth;
   final GoogleSignIn _googleSignIn;
+  final UserActivityService _userActivityService =
+      UserActivityService(); // Instantiate UserActivityService
 
   AuthNotifier()
     : _auth = FirebaseAuth.instance,
@@ -76,9 +79,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
       );
 
       await _auth.signInWithCredential(credential);
-      // Explicitly set state after successful sign-in
+      // Create user activity after successful sign-in
       final user = _auth.currentUser;
       if (user != null) {
+        await _userActivityService.createUserActivity(user.uid);
         state = AuthState.authenticated(user);
       } else {
         // This case should ideally not happen after successful signInWithCredential
@@ -124,7 +128,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
         email: email,
         password: password,
       );
-      // Listener updates state to authenticated
+      // Create user activity after successful signup
+      final user = _auth.currentUser;
+      if (user != null) {
+        await _userActivityService.createUserActivity(user.uid);
+      }
     } on FirebaseAuthException catch (e) {
       state = AuthState.error(e.message ?? 'Sign up failed');
     } catch (e) {
